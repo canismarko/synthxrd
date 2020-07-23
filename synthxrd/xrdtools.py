@@ -1,19 +1,23 @@
 # -*- coding: utf-8 -*-
 
 import imageio
+from io import StringIO
 import os
+import re
 import math
 import warnings
 import logging
 from functools import lru_cache, partial
 from contextlib import contextmanager
 from multiprocessing import Pool, cpu_count
+from pathlib import Path
+from typing import Sequence, Mapping
 
 import h5py
 from scipy import fftpack, ndimage, signal, stats
 from silx.io.specfile import SpecFile
 import pandas as pd
-from tqdm import tqdm, tqdm_notebook
+from tqdm import tqdm_notebook as tqdm
 import skimage
 from skimage import morphology
 import pyFAI
@@ -25,6 +29,7 @@ import matplotlib as mpl
 import xanespy as xp
 import PIL
 import xrayutilities as xru
+from xml.etree import ElementTree
 
 
 log = logging.getLogger(__name__)
@@ -32,7 +37,7 @@ log = logging.getLogger(__name__)
 
 LAMBDA = 0.43326450378946606 # X-ray wavelength in angstroms
 DEFAULT_MASK = 'masks/lab6_1_S002_00000.mask'
-HDF_FILENAME = 'in_situ_calcination_data.h5'
+DEFAULT_HDF_FILENAME = 'in_situ_calcination_data.h5'
 
 
 domain_labels = {
@@ -161,7 +166,7 @@ def load_integrator(poni_file='images/lab6_1_S002_00000.poni'):
     # ai = pyFAI.load('lab6_s3.poni')
     # ai = pyFAI.load('coin_cell/S7_lab6.poni')
     # ai = pyFAI.load('images/lab6_10-15-2019a.poni')
-    ai = pyFAI.load(poni_file)
+    ai = pyFAI.load(str(poni_file))
     # # Fix poni calibration
     # poni = 0.0845 # 0.0852
     # ai.set_poni1(0.0858)
@@ -192,13 +197,13 @@ def export_xye(filepath, Is, qs=None, twotheta=None, Es=None):
     df.to_csv(filepath)
 
 
-def load_metadata(hdf_groupname, hdf_filename=HDF_FILENAME):
+def load_metadata(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     """Load metadata previously saved to HDF5 by ``import_metadata``."""
     metadata = pd.read_hdf(hdf_filename, os.path.join(hdf_groupname, 'metadata'))
     return metadata
 
 
-def import_metadata(flist, hdf_groupname, hdf_filename=HDF_FILENAME):
+def import_metadata(flist, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     """Import the recorded temperature data, etc. from the .dat files.
     
     Resulting pandas dataframe is saved an HDF5 file and can be
@@ -206,7 +211,7 @@ def import_metadata(flist, hdf_groupname, hdf_filename=HDF_FILENAME):
     
     """
     all_dfs = []
-    for fpath in tqdm_notebook(flist, desc='Loading metadata'):
+    for fpath in tqdm(flist, desc='Loading metadata'):
         try:
             this_df = pd.read_csv(fpath, sep=r'\s+')
         except FileNotFoundError:
@@ -229,13 +234,13 @@ def import_metadata(flist, hdf_groupname, hdf_filename=HDF_FILENAME):
     metadata.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'metadata'))
 
 
-def import_refinements_gsas2(refinement_csv, hdf_groupname, hdf_filename=HDF_FILENAME):
+def import_refinements_gsas2(refinement_csv, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     # Import the refined parameters
     df = pd.read_csv(refinement_csv, index_col=1)
     df.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'refinements', 'parameters'))
 
 
-def load_refinement_params(hdf_groupname, hdf_filename=HDF_FILENAME):
+def load_refinement_params(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     """Load the refined parameters from disk, and merge with the stored metadata."""
     params = pd.read_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'refinements', 'parameters'))
     # Merge by filename
@@ -245,7 +250,7 @@ def load_refinement_params(hdf_groupname, hdf_filename=HDF_FILENAME):
 
 
 @contextmanager
-def load_xrd(hdf_groupname, hdf_filename=HDF_FILENAME):
+def load_xrd(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     """Load data previously imported by ``import_xrd``.
     
     This functions as a context manager, and yields HDF5
@@ -266,125 +271,248 @@ def load_xrd(hdf_groupname, hdf_filename=HDF_FILENAME):
         yield qs, Is
 
 
-def import_xrd(flist, hdf_groupname, hdf_filename=HDF_FILENAME,
-                    method='integrator', mask=None, threshold=None, overwrite=False):
-    results = []
-    ai = load_integrator()
-    do_integration = partial(integrate_data, integrator=ai,
-                             method=method, mask=mask,
-                             threshold=threshold)
-    data_list = []
-    qs, Is = [], []
-    # Check that target dataset doesn't already exist
-    with h5py.File(hdf_filename, mode='a') as fp:
-        if hdf_groupname in fp:
-            if overwrite:
-                del fp[hdf_groupname]
+class SpecScan():
+    scan_re = re.compile(
+        "#S\s+"
+        "([0-9]+)\s+"    # Scan number
+        "ascan\s+phi\s+"
+        "([-0-9]+)\s+"   # Start
+        "([-0-9]+)\s+"   # Stop
+        "([0-9]+)\s+"    # N_points
+        "([0-9]+)"       # Exposure time
+    )
+    date_re = re.compile("#D\s+(.*)")
+    def __init__(self, spec_lines, ):
+        self.parse_spec_lines(spec_lines)
+
+    def xml_lines(self, spec_lines):
+        """Generate through the UXML lines and return on the first non-xml
+        line."""
+        for line in spec_lines:
+            if line[:5] == '#UXML':
+                yield line
             else:
-                raise RuntimeError("hdf group %s already exists in file %s" % (hdf_groupname, hdf_filename))
-    # Integrate the data
-    for fpath in tqdm_notebook(flist, desc="Integrating"):
-        try:
-            frame = load_data(fpath)
-        except FileNotFoundError:
-            log.warning("Warning, could not open file %s", fpath)
-        new_q, new_I = do_integration(frame)
-        qs.append(new_q)
-        Is.append(new_I)
-    # Save results to HDF5 file
-    with h5py.File(hdf_filename, mode='a') as fp:
-        fp.create_dataset(os.path.join(hdf_groupname, 'integrated_intensity'), data=Is)
-        fp.create_dataset(os.path.join(hdf_groupname, 'scattering_length_q'), data=qs)
-    return qs, Is
+                # Push the non-XML line back onto the stack
+                spec_lines.send(line)
+                break
+
+    def parse_xml_lines(self, spec_lines):
+        xml_string = "\n".join([l[6:].rstrip('"') for l in spec_lines])
+        xml_string = f"<specblock>{xml_string}</specblock>"
+        block = ElementTree.fromstring(xml_string)
+        for group in block:
+            if group.attrib['name'] == "ad_file_info":
+                fname = [c.text for c in group.findall("dataset") if c.attrib['name'] == "file_name_last_full"][0]
+                self.file_path = "/".join(fname.split('/')[-3:])
+    
+    def generate_lines(self, spec_lines):
+        """Creates a generator with the ability to repeat values using
+        ``send()``."""
+        for line in spec_lines:
+            next_line = yield line.strip()
+            # Capture a value so it can be pushed back onto the stack
+            if next_line:
+                yield None # To return from the original send() call
+                yield next_line # Will be yielded on the next ``next()``
+    
+    def parse_spec_lines(self, spec_lines):
+        spec_lines = self.generate_lines(spec_lines)
+        for line in spec_lines:
+            # Scan header line
+            scan_match = self.scan_re.match(line)
+            if scan_match:
+                self.scan_num = scan_match.group(1)
+                self.kphi = int((int(scan_match.group(2)) + int(scan_match.group(3))) / 2)
+            # Date line
+            date_match = self.date_re.match(line)
+            if date_match:
+                self.timestamp = date_match.group(1)
+            # Metadata line
+            if line[:3] == '#L ':
+                metadata_str = StringIO("\n".join([line[3:], next(spec_lines)]))
+                self.metadata = pd.read_csv(metadata_str, sep=r'\s+')
+            # embedded xml parsing
+            if line[:5] == '#UXML':
+                self.parse_xml_lines([line] + list(self.xml_lines(spec_lines)))
 
 
-def integrate_data(data, integrator=None, method='integrator',
-                   mask=None, threshold=None, qmin=0.4, npt=None,
-                   return_cake=False):
-    """Mask pixels and produce a 1D spectrum.
-    
-    If *return_cake=True*, the return value will be (qs, Is, cake,
-    qs_cake, chis), otherwise it will be (qs, Is).
-    
-    Parameters
-    ==========
-    data
-      2D data as np.ndarray.
-    integrator
-      A pyFAI integrator, generally loaded from a PONI calibration
-      file. If omitted, a default integrator will be used.
-    method : optional
-      Which approach to take for integration. Possible values are
-      'integrator' (default), 'median', and 'mean'.
-    mask : optional
-      A numpy array with the same shape as *data*, and holds a mask to
-      use for excluding pixels. If omitted, a default mask will be
-      used.
-    threshold : optional
-      pixel-value threshold for making a mask (deprecated)
-    npt : int, optional
-      Number of points across for integration, will be used for both
-      1d and 2d integration.
-    qmin : optional
-      Only return intensities above this q-value. Useful for removing
-      artifacts from the beamstop, etc.
-    return_cake : optional
-      If true, return the 2D cake as well as the 1D integrated
-      pattern.
-    
-    Returns
-    =======
-    qs : 1D ndarray
-      Q scattering lengths for the 1D integrated data
-    Is : 1D ndarray
-      Integrated intensity data
-    cake : 2D ndarray, optional
-      Caked 2D data.
-    qs_cake : 1D ndarray, optional
-      Q scattering lengths for the 2D cake's 1st axis.
-    chis : 2D ndarray, optional
-      Azimuthal angles for the cake's 0th axis.
+def parse_spec_file(spec_file: Path):
+    # Prepare regular expressions for parsing the lines
+    # Some generic containers to hold the parsed results
+    samples = {
+    }
+    with open(spec_file, mode='r') as fp:
+        line = fp.readline()
+        while line:
+            # Check if this is the start of a scan block
+            is_scan_line = line[:2] == "#S"
+            if is_scan_line:
+                scanlines = [line]
+                while "Trajectory scan completed" not in line:
+                    # Extract data from the sample line
+                    scanlines.append(line)
+                    line = fp.readline()
+                # Create the scan object
+                scanlines.append(line)
+                scan = SpecScan(scanlines)
+                # Create a new entry for this sample if needed
+                if scan.kphi not in samples.keys():
+                    samples[scan.kphi] = []
+                # Append this scan number to the list of scans
+                samples[scan.kphi].append(scan)
+            line = fp.readline()
+    return samples
 
-    """
-    if mask is None:
-        mask = load_mask()
-    if integrator is None:
-        integrator = load_integrator()
-    # Determine default values for the number of points
-    if npt is None:
-        rms = lambda x: np.sqrt(np.sum(np.power(x, 2)))
-        npt_2d = int(rms(data.shape)/2)
-        npt_1d = npt_2d * 4
-    else:
-        npt_2d = npt
-        npt_1d = npt
-    # Integrate to 2D patterns (uncaking)
-    ai_kw = dict(npt_rad=npt_2d, method='python', unit='q_A^-1')
-    cake, qs_cake, chis = integrator.integrate2d(data, **ai_kw)
-    cake_mask, _, _ = integrator.integrate2d(mask, **ai_kw)
-    cake[cake_mask.astype('bool')] = np.nan
-    cake[cake==0] = np.nan
-    if method == 'median':
-        Is = np.nanmedian(cake, axis=0)
-        qs = qs_cake
-    elif method == 'mean':
-        Is = np.nanmean(cake, axis=0)
-        qs = qs_cake        
-    elif method == 'integrator':
-        qs, Is = integrator.integrate1d(data, npt=npt_1d, mask=mask, unit='q_A^-1')
-    else:
-        raise ValueError("method must be 'integrator', 'median', or 'mean'.")
-    # Apply the mask to the cake for display
-    # cake = np.ma.array(cake, mask=cake_mask)
-    # Apply the minimum q to the data
-    Is = Is[qs>=qmin]
-    qs = qs[qs>=qmin]
-    # Prepare the return values
-    if return_cake:
-        ret = (qs, Is, cake, qs_cake, chis)
-    else:
-        ret = (qs, Is)
-    return ret
+
+class XRDImporter():
+    def __init__(self, poni_file, mask_file):
+        self.poni_file = poni_file
+        self.mask_file = mask_file
+    
+    def __call__(self, spec_file: Path, sample_names: Mapping={}, overwrite=True):
+        """Find and integrate 2D diffraction patterns from in-situ XRD.
+        
+        If *spec_file* is given, the file list will be populated
+        automatically. Either *spec_file* or *flist* is required.
+        
+        Parameters
+        ==========
+        spec_file
+          Path to the spec file for this experiment.
+        
+        """
+        # Get metadata from spec file
+        samples = parse_spec_file(spec_file)
+        if samples.keys() != sample_names.keys():
+            msg = ("Parameter *sample_names* does not match spec file. "
+                   "Provide a mappable with keys matching these kphi values {}".format(list(samples.keys())))
+            raise ValueError(msg)
+        # Load the data files for each import
+        for kphi in samples.keys():
+            self.import_2d_xrd([s.file_path for s in samples[kphi]], sample_names[kphi], overwrite=overwrite)
+        # Process the metadata into a pandas dataframe
+        
+    
+    def import_2d_xrd(self, flist: Sequence, hdf_groupname,
+                      hdf_filename=DEFAULT_HDF_FILENAME,
+                      method='integrator', mask=None, threshold=None,
+                      overwrite=False):
+        results = []
+        ai = load_integrator(poni_file=self.poni_file)
+        do_integration = partial(self.integrate_data, integrator=ai,
+                                 method=method, mask=mask,
+                                 threshold=threshold)
+        data_list = []
+        qs, Is = [], []
+        # Check that target dataset doesn't already exist
+        with h5py.File(hdf_filename, mode='a') as fp:
+            if hdf_groupname in fp:
+                if overwrite:
+                    del fp[hdf_groupname]
+                else:
+                    raise RuntimeError("hdf group %s already exists in file %s" % (hdf_groupname, hdf_filename))
+        # Integrate the data
+        for fpath in tqdm(flist, desc=hdf_groupname):
+            try:
+                frame = load_data(fpath)
+            except FileNotFoundError:
+                log.warning("Warning, could not open file %s", fpath)
+            new_q, new_I = do_integration(frame)
+            qs.append(new_q)
+            Is.append(new_I)
+        # Save results to HDF5 file
+        with h5py.File(hdf_filename, mode='a') as fp:
+            fp.create_dataset(os.path.join(hdf_groupname, 'integrated_intensity'), data=Is)
+            fp.create_dataset(os.path.join(hdf_groupname, 'scattering_length_q'), data=qs)
+        return qs, Is
+    
+    def integrate_data(self, data, integrator=None, method='integrator',
+                       mask=None, threshold=None, qmin=0.4, npt=None,
+                       return_cake=False):
+        """Mask pixels and produce a 1D spectrum.
+        
+        If *return_cake=True*, the return value will be (qs, Is, cake,
+        qs_cake, chis), otherwise it will be (qs, Is).
+        
+        Parameters
+        ==========
+        data
+          2D data as np.ndarray.
+        integrator
+          A pyFAI integrator, generally loaded from a PONI calibration
+          file. If omitted, a default integrator will be used.
+        method : optional
+          Which approach to take for integration. Possible values are
+          'integrator' (default), 'median', and 'mean'.
+        mask : optional
+          A numpy array with the same shape as *data*, and holds a mask to
+          use for excluding pixels. If omitted, a default mask will be
+          used.
+        threshold : optional
+          pixel-value threshold for making a mask (deprecated)
+        npt : int, optional
+          Number of points across for integration, will be used for both
+          1d and 2d integration.
+        qmin : optional
+          Only return intensities above this q-value. Useful for removing
+          artifacts from the beamstop, etc.
+        return_cake : optional
+          If true, return the 2D cake as well as the 1D integrated
+          pattern.
+        
+        Returns
+        =======
+        qs : 1D ndarray
+          Q scattering lengths for the 1D integrated data
+        Is : 1D ndarray
+          Integrated intensity data
+        cake : 2D ndarray, optional
+          Caked 2D data.
+        qs_cake : 1D ndarray, optional
+          Q scattering lengths for the 2D cake's 1st axis.
+        chis : 2D ndarray, optional
+          Azimuthal angles for the cake's 0th axis.
+
+        """
+        if mask is None:
+            mask = load_mask(self.mask_file)
+        if integrator is None:
+            integrator = load_integrator(self.poni_file)
+        # Determine default values for the number of points
+        if npt is None:
+            rms = lambda x: np.sqrt(np.sum(np.power(x, 2)))
+            npt_2d = int(rms(data.shape)/2)
+            npt_1d = npt_2d * 4
+        else:
+            npt_2d = npt
+            npt_1d = npt
+        # Integrate to 2D patterns (uncaking)
+        ai_kw = dict(npt_rad=npt_2d, method='python', unit='q_A^-1')
+        cake, qs_cake, chis = integrator.integrate2d(data, **ai_kw)
+        cake_mask, _, _ = integrator.integrate2d(mask, **ai_kw)
+        cake[cake_mask.astype('bool')] = np.nan
+        cake[cake==0] = np.nan
+        if method == 'median':
+            Is = np.nanmedian(cake, axis=0)
+            qs = qs_cake
+        elif method == 'mean':
+            Is = np.nanmean(cake, axis=0)
+            qs = qs_cake        
+        elif method == 'integrator':
+            qs, Is = integrator.integrate1d(data, npt=npt_1d, mask=mask, unit='q_A^-1')
+        else:
+            raise ValueError("method must be 'integrator', 'median', or 'mean'.")
+        # Apply the mask to the cake for display
+        # cake = np.ma.array(cake, mask=cake_mask)
+        # Apply the minimum q to the data
+        Is = Is[qs>=qmin]
+        qs = qs[qs>=qmin]
+        # Prepare the return values
+        if return_cake:
+            ret = (qs, Is, cake, qs_cake, chis)
+        else:
+            ret = (qs, Is)
+        return ret
 
 
 # Build the file list
@@ -880,7 +1008,7 @@ def plot_xrd_params(directory: str, specfile: str, specscan: str,
     ds = []
     betas = []
     # Do the fitting for each phase
-    for qs, Is, cakes in tqdm_notebook(imgdata, desc="Fitting"):
+    for qs, Is, cakes in tqdm(imgdata, desc="Fitting"):
         if plot_fits:
             fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(8, 3))
         else:
