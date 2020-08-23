@@ -7,11 +7,9 @@ import re
 import math
 import warnings
 import logging
-from functools import lru_cache, partial
-from contextlib import contextmanager
+from functools import lru_cache
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-from typing import Sequence, Mapping
 
 import h5py
 from scipy import fftpack, ndimage, signal, stats
@@ -28,7 +26,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import xanespy as xp
 import PIL
-import xrayutilities as xru
 from xml.etree import ElementTree
 from dioptas.model.util.BackgroundExtraction import extract_background
 
@@ -49,53 +46,6 @@ domain_labels = {
     'twotheta': '2θ°',
     'd': 'd /A',
 }
-
-
-@lru_cache()
-def cif_to_powder(ciffile, I0=100, wavelength=None):
-    try:
-        xu_cif = xru.materials.CIFFile(ciffile)
-        xu_crystal = xru.materials.Crystal(name="b-CsCl", lat=xu_cif.SGLattice())
-    except:
-        log.error("Failed to load cif: %s", ciffile)
-        if hasattr(xu_cif, 'close'):
-            xu_cif.close()
-        raise
-    powder = xru.simpack.smaterials.Powder(xu_crystal, 1)
-    opts = {}
-    if wavelength is not None:
-        opts['wl'] = wavelength
-    pdiff = xru.simpack.PowderDiffraction(powder, tt_cutoff=80, **opts)
-    return pdiff
-
-
-def plot_cif(ciffile, ax=None, I0=100, color='C0', label=None, domain='q',
-             wavelength=None, alpha=0.5, energy=None, *args, **kwargs):
-    if energy is not None:
-        wavelength = energy_to_wavelength(energy)
-    if wavelength is None:
-        wavelength = LAMBDA
-    powdermodel = cif_to_powder(ciffile, I0, wavelength=wavelength)
-    if ax is None:
-        ax = plt.gca()
-    # Do the plotting
-    label_added = False
-    for idx, hkl in enumerate(powdermodel.data):
-        data = powdermodel.data[hkl]
-        ang = data['ang']
-        # Decide if we're doing q or two-theta
-        q = twotheta_to_q(2*ang, wavelength=wavelength)
-        x = convert_q_domain(q, domain=domain, wavelength=wavelength)
-        # Plot reflections
-        r = data['r']
-        if r > 0.01:
-            if not label_added:
-                _label = label
-                label_added = True
-            else:
-                _label = None
-            line = ax.plot([x, x], [0, r*I0], color=color, alpha=alpha, label=_label, *args, **kwargs)
-    return line[0]
 
 
 def rotate_2d_image(data):
@@ -131,7 +81,6 @@ def get_mask(data, threshold=None):
     warnings.warn('Deprecated, use *load_mask*')
     assert False, "Out of date, are you sure?"
     if threshold is None:
-        print('Fake mask')
         # mask = load_mask('setup/lab6_1_S002_00000.mask')
         mask = np.zeros_like(data)
     else:
@@ -174,81 +123,35 @@ def export_xye(filepath, Is, qs=None, twotheta=None, Es=None):
     df.to_csv(filepath)
 
 
-def load_metadata(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
-    """Load metadata previously saved to HDF5 by ``import_metadata``."""
-    metadata = pd.read_hdf(hdf_filename, os.path.join(hdf_groupname, 'metadata'))
-    return metadata
-
-
-def import_metadata(flist, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
-    """Import the recorded temperature data, etc. from the .dat files.
+# def import_metadata(flist, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
+#     """Import the recorded temperature data, etc. from the .dat files.
     
-    Resulting pandas dataframe is saved an HDF5 file and can be
-    retrieved with the ``load_metadata`` function..
+#     Resulting pandas dataframe is saved an HDF5 file and can be
+#     retrieved with the ``load_metadata`` function..
     
-    """
-    all_dfs = []
-    for fpath in tqdm(flist, desc='Loading metadata'):
-        try:
-            this_df = pd.read_csv(fpath, sep=r'\s+')
-        except FileNotFoundError:
-            warnings.warn("Warning, could not open file {}".format(fpath))
-            log.warning("Warning, could not open file {}".format(fpath))
-            this_df = pd.DataFrame(index=[0])
-        else:
-            log.debug("Loaded metadata from file: %s", fpath)
-        this_df['filename'] = [fpath]
-        all_dfs.append(this_df)
-    metadata = pd.concat(all_dfs, sort=False)
-    metadata = metadata.set_index(pd.to_datetime(metadata['timestamp']))
-    # Add a column for elapsed time in minutes
-    t0 = np.min(metadata.index)
-    metadata['elapsed_time_s'] = (metadata.index - t0).values.astype('float32')/1e9
-    metadata.loc[pd.isnull(metadata.index),'elapsed_time_s'] = np.nan
-    # Add a column to save the name of the refinement csv file for later
-    metadata['refinement_filename'] = ["{}_{:05d}.csv".format(hdf_groupname, i) for i in range(len(metadata))]
-    # Save to the HDF5 file
-    metadata.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'metadata'))
-
-
-def import_refinements_gsas2(refinement_csv, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
-    # Import the refined parameters
-    df = pd.read_csv(refinement_csv, index_col=1)
-    df.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'refinements', 'parameters'))
-
-
-def load_refinement_params(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
-    """Load the refined parameters from disk, and merge with the stored metadata."""
-    params = pd.read_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'refinements', 'parameters'))
-    # Merge by filename
-    metadata = load_metadata(hdf_groupname=hdf_groupname, hdf_filename=hdf_filename)
-    refined_params = pd.merge(metadata, params, how='right', left_on='refinement_filename', right_on='name')
-    return refined_params
-
-
-@contextmanager
-def load_xrd(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME, background_subtracted=True):
-    """Load data previously imported by ``import_xrd``.
-    
-    This functions as a context manager, and yields HDF5
-    datasets. Upon exiting the context, the HDF5 file is closed.
-    
-    Returns
-    =======
-    qs
-      Open HDF5 dataset with scattering lengths (q) in inverse
-      angstroms.
-    Is
-      Open HDF5 dataset with diffraction intensities.
-    
-    """
-    with h5py.File(hdf_filename, mode='r') as fp:
-        qs = fp[os.path.join(hdf_groupname, 'scattering_length_q')]
-        if background_subtracted:
-            Is = fp[os.path.join(hdf_groupname, 'integrated_intensity_bg_subtracted')]
-        else:
-            Is = fp[os.path.join(hdf_groupname, 'integrated_intensity')]
-        yield qs, Is
+#     """
+#     all_dfs = []
+#     for fpath in tqdm(flist, desc='Loading metadata'):
+#         try:
+#             this_df = pd.read_csv(fpath, sep=r'\s+')
+#         except FileNotFoundError:
+#             warnings.warn("Warning, could not open file {}".format(fpath))
+#             log.warning("Warning, could not open file {}".format(fpath))
+#             this_df = pd.DataFrame(index=[0])
+#         else:
+#             log.debug("Loaded metadata from file: %s", fpath)
+#         this_df['filename'] = [fpath]
+#         all_dfs.append(this_df)
+#     metadata = pd.concat(all_dfs, sort=False)
+#     metadata = metadata.set_index(pd.to_datetime(metadata['timestamp']))
+#     # Add a column for elapsed time in minutes
+#     t0 = np.min(metadata.index)
+#     metadata['elapsed_time_s'] = (metadata.index - t0).values.astype('float32')/1e9
+#     metadata.loc[pd.isnull(metadata.index),'elapsed_time_s'] = np.nan
+#     # Add a column to save the name of the refinement csv file for later
+#     metadata['refinement_filename'] = ["{}_{:05d}.csv".format(hdf_groupname, i) for i in range(len(metadata))]
+#     # Save to the HDF5 file
+#     metadata.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'metadata'))
 
 
 class SpecScan():
@@ -367,276 +270,6 @@ def parse_spec_file(spec_file: Path, kphi_tol=0.):
     return samples
 
 
-class IOBase():
-    @property
-    def wavelength(self):
-        """Return the calibrated wavelength, in Angstroms."""
-        ai = load_integrator(poni_file=self.poni_file)
-        return ai.wavelength / 1e-10 # In angstroms
-    
-    def __init__(self, poni_file: str, hdf_filename=DEFAULT_HDF_FILENAME):
-        self.hdf_filename = Path(hdf_filename)
-        self.poni_file = Path(poni_file)
-
-
-class XRDImporter(IOBase):
-    """Callable used for importing in-situ XRD scans from a spec file."""
-    
-    def __init__(self, poni_file: str, mask_file: str, data_dir: str, background_file=None, hdf_filename=DEFAULT_HDF_FILENAME):
-        """        
-        Parameters
-        ==========
-        poni_file
-          Relative path to the PONI calibration file prepared using
-          Dioptas.
-        mask_file
-          Path to a .mask file from Dioptas with the mask for removing
-          the beam-stop, etc.
-        data_dir
-          Directory in which to search for scans. Filenames in the
-          spec file will be taken as relative to the directory in
-          *data_dir*.
-        background_file
-          Path to an image of the area detector with no sample. This
-          will subtracted from all 2D scans before integration.
-        hdf_filename
-          Path to the HDF file used to store the imported data. If
-          omitted, ``xrdtools.DEFAULT_HDF_FILENAME`` will be used.
-        
-        """
-        super().__init__(poni_file=poni_file, hdf_filename=hdf_filename)
-        self.mask_file = Path(mask_file)
-        self.data_dir = data_dir
-        if background_file is not None:
-            background_file = Path(background_file)
-        self.background_file = background_file
-    
-    def __call__(self, spec_file: Path, sample_names: Mapping={}, overwrite: bool=True, kphi_tol: int=0):
-        """Find and integrate 2D diffraction patterns from in-situ XRD.
-        
-        If *spec_file* is given, the file list will be populated
-        automatically. Either *spec_file* or *flist* is required.
-        
-        Parameters
-        ==========
-        spec_file
-          Path to the spec file for this experiment.
-        sample_names
-          A mapping of kphi positions to sample names. The keys to
-          this mapping must match the kphi values extracted from the
-          spec file, or else an exception will be raised.
-        overwrite
-          If true, overwrite any previously imported data in the HDF5
-          file with these same *sample_names*.
-        kphi_tol
-          Scans with a khpi within the value to each other will be
-          considered part of the same sample.
-        
-        """
-        # Get metadata from spec file
-        log.debug("Beginning import from spec file: %s", str(spec_file))
-        samples = parse_spec_file(spec_file, kphi_tol=kphi_tol)
-        log.debug("Finished parsing spec file.")
-        log.info("Found %d samples.", len(samples.keys()))
-        all_dfs = []
-        if samples.keys() != sample_names.keys():
-            print(samples[0][0])
-            msg = ("Parameter *sample_names* does not match spec file. "
-                   "Provide a mappable with keys matching these kphi values {}".format(list(samples.keys())))
-            raise ValueError(msg)
-        # Load the data files for each import
-        for kphi in samples.keys():
-            self.import_2d_xrd([self.data_dir/s.file_path for s in samples[kphi]], sample_names[kphi], overwrite=overwrite)
-            # Process the metadata into a pandas dataframe
-            metadata = self.merge_metadata(samples[kphi], sample_name=sample_names[kphi])
-            metadata.to_hdf(self.hdf_filename, key="/".join([sample_names[kphi], 'metadata']))
-    
-    def merge_metadata(self, scans, sample_name):
-        """Take individual metadata for scans and merge them into a single dataframe."""
-        all_dfs = [s.metadata for s in scans]
-        metadata = pd.concat(all_dfs, sort=False)
-        metadata['timestamp'] = pd.to_datetime([s.timestamp for s in scans])
-        metadata['scan_number'] = [s.scan_num for s in scans]
-        metadata = metadata.set_index(pd.to_datetime(metadata['timestamp']))
-        # Add a column for elapsed time in minutes
-        t0 = np.min(metadata.index)
-        metadata['elapsed_time_s'] = (metadata.index - t0).values.astype('float32')/1e9
-        metadata.loc[pd.isnull(metadata.index),'elapsed_time_s'] = np.nan
-        # Add a column to save the name of the refinement csv file for later
-        refinement_names = ["{}_{:05d}_{:05d}.csv".format(sample_name, i, int(s.scan_num))
-                            for i, s in enumerate(scans)]
-        metadata['refinement_filename'] = refinement_names
-        return metadata
-    
-    def import_2d_xrd(self, flist: Sequence, hdf_groupname,
-                      method='integrator', mask=None, threshold=None,
-                      overwrite=False):
-        results = []
-        ai = load_integrator(poni_file=self.poni_file)
-        do_integration = partial(self.integrate_data, integrator=ai,
-                                 method=method, mask=mask,
-                                 threshold=threshold)
-        data_list = []
-        qs, Is, Is_subtracted = [], [], []
-        # Check that target dataset doesn't already exist
-        with h5py.File(self.hdf_filename, mode='a') as fp:
-            if hdf_groupname in fp:
-                if overwrite:
-                    del fp[hdf_groupname]
-                else:
-                    raise RuntimeError("hdf group %s already exists in file %s" % (hdf_groupname, self.hdf_filename))
-        # Integrate the data
-        for fpath in tqdm(flist, desc=hdf_groupname):
-            try:
-                frame = load_data(fpath)
-            except FileNotFoundError:
-                # File is not available, so prepare a dummy file
-                log.warning("Warning, could not open file %s", fpath)
-                new_q = qs[0]
-                new_I = np.zeros_like(Is[0])
-            else:
-                new_q, new_I = do_integration(frame)
-            qs.append(new_q)
-            Is.append(new_I)
-            bg = extract_background(new_q, new_I)
-            Is_subtracted.append(new_I - bg)
-        # Save results to HDF5 file
-        with h5py.File(self.hdf_filename, mode='a') as fp:
-            fp.create_dataset(os.path.join(hdf_groupname, 'integrated_intensity'), data=Is)
-            fp.create_dataset(os.path.join(hdf_groupname, 'integrated_intensity_bg_subtracted'),
-                              data=Is_subtracted)
-            fp.create_dataset(os.path.join(hdf_groupname, 'scattering_length_q'), data=qs)
-        return qs, Is
-    
-    @property
-    @lru_cache()
-    def background_image(self):
-        if self.background_file:
-            bg_img = load_data(self.background_file)
-        else:
-            raise exceptions.NoBackgroundFile("Background file not available.")
-        return bg_img
-    
-    def integrate_data(self, data, integrator=None, method='integrator',
-                       mask=None, threshold=None, qmin=0.4, npt=None,
-                       return_cake=False):
-        """Mask pixels and produce a 1D spectrum.
-        
-        If *return_cake=True*, the return value will be (qs, Is, cake,
-        qs_cake, chis), otherwise it will be (qs, Is).
-        
-        Parameters
-        ==========
-        data
-          2D data as np.ndarray.
-        integrator
-          A pyFAI integrator, generally loaded from a PONI calibration
-          file. If omitted, a default integrator will be used.
-        method : optional
-          Which approach to take for integration. Possible values are
-          'integrator' (default), 'median', and 'mean'.
-        mask : optional
-          A numpy array with the same shape as *data*, and holds a mask to
-          use for excluding pixels. If omitted, a default mask will be
-          used.
-        threshold : optional
-          pixel-value threshold for making a mask (deprecated)
-        npt : int, optional
-          Number of points across for integration, will be used for both
-          1d and 2d integration.
-        qmin : optional
-          Only return intensities above this q-value. Useful for removing
-          artifacts from the beamstop, etc.
-        return_cake : optional
-          If true, return the 2D cake as well as the 1D integrated
-          pattern.
-        
-        Returns
-        =======
-        qs : 1D ndarray
-          Q scattering lengths for the 1D integrated data
-        Is : 1D ndarray
-          Integrated intensity data
-        cake : 2D ndarray, optional
-          Caked 2D data.
-        qs_cake : 1D ndarray, optional
-          Q scattering lengths for the 2D cake's 1st axis.
-        chis : 2D ndarray, optional
-          Azimuthal angles for the cake's 0th axis.
-
-        """
-        if mask is None:
-            mask = load_mask(self.mask_file)
-        if integrator is None:
-            integrator = load_integrator(self.poni_file)
-        # Determine default values for the number of points
-        if npt is None:
-            rms = lambda x: np.sqrt(np.sum(np.power(x, 2)))
-            npt_2d = int(rms(data.shape)/2)
-            npt_1d = npt_2d * 4
-        else:
-            npt_2d = npt
-            npt_1d = npt
-        # Integrate to 2D patterns (uncaking)
-        ai_kw = dict(npt_rad=npt_2d, method='python', unit='q_A^-1')
-        cake, qs_cake, chis = integrator.integrate2d(data, **ai_kw)
-        cake_mask, _, _ = integrator.integrate2d(mask, **ai_kw)
-        cake[cake_mask.astype('bool')] = np.nan
-        cake[cake==0] = np.nan
-        if method == 'median':
-            Is = np.nanmedian(cake, axis=0)
-            qs = qs_cake
-        elif method == 'mean':
-            Is = np.nanmean(cake, axis=0)
-            qs = qs_cake        
-        elif method == 'integrator':
-            qs, Is = integrator.integrate1d(data, npt=npt_1d, mask=mask, unit='q_A^-1')
-        else:
-            raise ValueError("method must be 'integrator', 'median', or 'mean'.")
-        # Apply the mask to the cake for display
-        # cake = np.ma.array(cake, mask=cake_mask)
-        # Apply the minimum q to the data
-        Is = Is[qs>=qmin]
-        qs = qs[qs>=qmin]
-        # Prepare the return values
-        if return_cake:
-            ret = (qs, Is, cake, qs_cake, chis)
-        else:
-            ret = (qs, Is)
-        return ret
-    
-
-
-class GSASExporter(IOBase):
-    """Callable used for exporting in-situ XRD scans for GSAS-II refinement."""
-    def __call__(self, sample_name, overwrite=True):
-        """Save all scans to text files for a GSAS-II sequential refinement.
-        
-        Either *patterns*, or both *Iss*, *qss* must be given.
-        
-        """
-        # Prepare a destination directory if necessary
-        dirname = f"{sample_name}_refinements"
-        if not os.path.exists(dirname):
-            os.mkdir(dirname)
-        # Load data
-        metadata = load_metadata(sample_name)
-        with load_xrd(sample_name, background_subtracted=False) as (qs, Is):
-            # Iterate through each scan and save the results
-            for csv_filename, Is, qs in tqdm(zip(metadata['refinement_filename'], Is, qs), total=Is.shape[0]):
-                # Determine where to save the file (ie. filepath)
-                thisfile = os.path.join(dirname, csv_filename)
-                # Convert Q to two-theta
-                tth = q_to_twotheta(qs, wavelength=self.wavelength)
-                # Save the data to the file
-                if not os.path.exists(thisfile) or overwrite:
-                    pattern = pd.Series(Is, index=tth)
-                    pattern.to_csv(thisfile, header=False)
-                else:
-                    warnings.warn("Refusing to overwrite file %s" % thisfile)
-        
-
-
 # Build the file list
 def find_files(directory, curr_list=None):
     if curr_list is None:
@@ -648,23 +281,6 @@ def find_files(directory, curr_list=None):
         elif os.path.splitext(fpath)[1] == '.tif':
             curr_list.append(fpath)
     return tuple(curr_list)
-
-
-def convert_q_domain(q, domain, wavelength=None):
-    """Convert q values to d-spacing ('d') or 2θ° ('twotheta')."""
-    if wavelength is None:
-        wavelength = LAMBDA
-    if domain.lower() == 'q':
-        x = q
-    elif domain.lower() == 'd':
-        x = 2 * np.pi / q
-    elif domain.lower() in ['twotheta', 'tth']:
-        x = q_to_twotheta(q, wavelength=wavelength)
-    else:
-        raise ValueError(
-            f"domain must be one of 'd', 'q', 'twotheta', 'tth'. "
-            "Received {domain}".format(domain))
-    return x
 
 
 def plot_scan_summary(filepath, mask_path=None, bg_npt=11, figsize=(15, 4), domain='q'):
@@ -706,244 +322,6 @@ def plot_param_with_esd(x, df, col, ax, esd_alpha=0.3, *args, **kwargs):
     esd_kw.pop('label', None)
     ax.fill_between(x, param-esd, param+esd, alpha=esd_alpha, *args, **esd_kw)
     
-    
-def plot_insitu_heatmap(qs, Is, metadata, figsize=(8, 8),
-                        ciffiles=[], highlighted_scans=(0,),
-                        plot_sqrt=False, plot_log=False, domain='q', vmin=None, vmax=None, cmap='viridis'):
-    """Plot related data for in-situ heating experiments.
-    
-    Parameters
-    ==========
-    qs
-      Array of scattering lengths
-    Is
-      Array of integrated diffraction intensities
-    metadata
-      iterable with scan metadata as a dictionary.
-    figsize 
-      figure size for plotting
-    ciffiles
-      iterable of paths to .CIF files that will be plotted below the
-      XRD scans. Each entry should be a tuple of (label, fpath).
-    highlighted_scans
-      Array of scan indices to plot with solid white lines for
-      emphasis.
-    plot_sqrt
-      If true, the image intensity will show the square-root of the
-      diffraction signal.
-    
-    Returns
-    =======
-    fig
-      The figure receiving the plots.
-    ax
-      A list of axes that were drawn on, in order (temperature, XRD,
-      cif0, cif1, ...)
-    
-    """
-    # Prepare data
-    times = metadata['elapsed_time_s'] / 3600
-    temps = metadata['temperature']
-    # Check that the qs are the same for all scans and equally spaced
-    qs_are_consistent = (np.unique(qs, axis=0).shape[0] == 1)
-    if not qs_are_consistent:
-        warnings.warn('Scattering lengths are not consistent between scans.')
-    qs_are_linear = stats.linregress(np.arange(qs.shape[1]), qs[0]).rvalue == 1.0
-    if not qs_are_linear:
-        warnings.warn('Scattering lengths are not evenly spaced.')
-    # Prepare the figure and subplot axes
-    fig = plt.figure(figsize=figsize, constrained_layout=True)
-    fig.set_constrained_layout_pads(w_pad=0., h_pad=0.,
-                                    hspace=0., wspace=0.)
-    n_ciffs = len(ciffiles)
-    if n_ciffs > 0:
-        height_ratios = (9,) + (1,) * n_ciffs
-        gs1 = mpl.gridspec.GridSpec(
-            1+n_ciffs, 3, figure=fig,
-            width_ratios=(1., 7, 0.3), height_ratios=height_ratios,
-        )
-    else:
-        gs1 = mpl.gridspec.GridSpec(1, 3, figure=fig, width_ratios=(1., 7, 0.3))
-    tempax = fig.add_subplot(gs1[0,0])
-    xrdax = fig.add_subplot(gs1[0,1])
-    cax = fig.add_subplot(gs1[0,2])
-    cifaxs = np.asarray([fig.add_subplot(gs1[i,1]) for i in range(1, n_ciffs+1)])
-    # Plot the temperature profile
-    tempax.plot(temps, times)
-    extent = (qs[0,0], qs[0,-1], times[0], times[-1])
-    if plot_sqrt:
-        scaling_f = np.sqrt
-    elif plot_log:
-        scaling_f = np.log
-    else:
-        scaling_f = np.asarray
-    xrdimg = xrdax.imshow(scaling_f(Is), origin='bottom', aspect='auto', extent=extent, vmin=vmin, vmax=vmax, cmap=cmap)
-    plt.colorbar(mappable=xrdimg, cax=cax, cmap=cmap)
-    # Annotate and format the axes
-    xrdax.set_facecolor('black')
-    xrdax.set_xlabel("|q| /$A^{-1}$")
-    xrdax.set_xlim(right=5.3)
-    xrdax.xaxis.tick_top()
-    xrdax.xaxis.set_label_position('top')
-    xrdax.set_ylabel('')
-    xrdax.set_yticklabels([])
-    tempax.xaxis.tick_top()
-    tempax.xaxis.set_label_position('top')
-    tempax.set_ylabel("Time /h")
-    tempax.set_xlabel('Temp /°C')
-    vline_kw = dict(ls=':', alpha=0.5, zorder=0)
-    tempax.axvline(30, **vline_kw)
-    tempax.axvline(500, **vline_kw)
-    tempax.axvline(900, **vline_kw)
-    tempax.set_xticks([30, 500, 900])
-    # Make all time axes the same
-    for ax in (xrdax, tempax):
-        # valid_times = times[times.index != pd.NaT]
-        with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-            pass
-        ax.set_ylim(times.min(), times.max())
-    # Plot requested CIF files
-    for (label, cifpath), cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
-        plot_cif(str(cifpath), ax=cifax, wavelength=LAMBDA, color=f"C{idx}", label=label)
-    # Format the CIF axes
-    for ax in cifaxs:
-        ax.set_yticks([])
-        ax.set_xticklabels([])
-        ax.legend(framealpha=0, loc='upper right', handlelength=0)
-    # Align all q axes
-    for ax in (xrdax, *cifaxs):
-        ax.set_xlim(np.min(qs), np.max(qs))
-    # Align all the cif vertical axes
-    for ax in cifaxs:
-        ax.set_ylim(0)
-    for i in highlighted_scans:
-        I = Is[i]
-        q = qs[i]
-        t = times[i]
-        T = temps[i]
-        xrdax.plot(q, (I - I.min()) / (I.max() - I.min()) / 2 + t, color='white')
-        xrdax.text(x=7.5, y=t + 0.2, s=f'{T:.0f}°C', ha='right', color='white')
-    # Make the tick marks in a different domain if requested
-    if domain != 'q':
-        xrdax.set_yticklabels(convert_q_domain(xrdax.yticklabels))
-    return fig, (tempax, xrdax, *cifaxs)
-
-
-def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
-                          ciffiles=[], plot_sqrt=False,
-                          plot_log=False, domain='q', cmap='viridis'):
-    """Plot related data for in-situ heating experiments.
-    
-    Parameters
-    ==========
-    qs
-      Array of scattering lengths
-    Is
-      Array of integrated diffraction intensities
-    metadata
-      iterable with scan metadata as a dictionary.
-    figsize 
-      figure size for plotting
-    ciffiles
-      iterable of paths to .CIF files that will be plotted below the
-      XRD scans. Each entry should be a tuple of (label, fpath).
-    plot_sqrt
-      If true, the image intensity will show the square-root of the
-      diffraction signal.
-    
-    Returns
-    =======
-    fig
-      The figure receiving the plots.
-    ax
-      A list of axes that were drawn on, in order (temperature, XRD,
-      cif0, cif1, ...)
-    
-    """
-    # Prepare data
-    times = metadata['elapsed_time_s'] / 3600
-    temps = metadata['temperature']
-    # Check that the qs are the same for all scans and equally spaced
-    qs_are_consistent = (np.unique(qs, axis=0).shape[0] == 1)
-    if not qs_are_consistent:
-        warnings.warn('Scattering lengths are not consistent between scans.')
-    qs_are_linear = stats.linregress(np.arange(qs.shape[1]), qs[0]).rvalue == 1.0
-    if not qs_are_linear:
-        warnings.warn('Scattering lengths are not evenly spaced.')
-    # Prepare the figure and subplot axes
-    fig = plt.figure(figsize=figsize, constrained_layout=True)
-    fig.set_constrained_layout_pads(w_pad=0., h_pad=0.,
-                                    hspace=0., wspace=0.)
-    n_ciffs = len(ciffiles)
-    if n_ciffs > 0:
-        height_ratios = (9,) + (1,) * n_ciffs
-        gs1 = mpl.gridspec.GridSpec(
-            1+n_ciffs, 2, figure=fig,
-            width_ratios=(1., 7.3), height_ratios=height_ratios,
-        )
-    else:
-        gs1 = mpl.gridspec.GridSpec(1, 3, figure=fig, width_ratios=(1., 7, 0.3))
-    tempax = fig.add_subplot(gs1[0,0])
-    xrdax = fig.add_subplot(gs1[0,1])
-    cifaxs = np.asarray([fig.add_subplot(gs1[i,1]) for i in range(1, n_ciffs+1)])
-    # Plot the temperature profile
-    tempax.plot(temps, times)
-    extent = (qs[0,0], qs[0,-1], times[0], times[-1])
-    if plot_sqrt:
-        scaling_f = np.sqrt
-    elif plot_log:
-        scaling_f = np.log
-    else:
-        scaling_f = np.asarray
-    # xrdimg = xrdax.imshow(scaling_f(Is), origin='bottom', aspect='auto', extent=extent, vmin=vmin, vmax=vmax, cmap=cmap)
-    # Normalize and plot each XRD pattern
-    linespace = np.max(times) / Is.shape[0]
-    # Normalize the plot
-    I_norm = (Is - np.min(Is)) / (np.max(Is) - np.min(Is))
-    I_norm = linespace * 6 * I_norm
-    for idx, (q, I) in enumerate(zip(qs, I_norm)):
-        plt.plot(q, I + linespace * idx, linewidth=0.7, zorder=Is.shape[0]-idx)
-    # Annotate and format the axes
-    xrdax.set_xlabel("|q| /$A^{-1}$")
-    xrdax.set_xlim(right=5.3)
-    xrdax.xaxis.tick_top()
-    xrdax.xaxis.set_label_position('top')
-    xrdax.set_ylabel('')
-    xrdax.set_yticklabels([])
-    tempax.xaxis.tick_top()
-    tempax.xaxis.set_label_position('top')
-    tempax.set_ylabel("Time /h")
-    tempax.set_xlabel('Temp /°C')
-    vline_kw = dict(ls=':', alpha=0.5, zorder=0)
-    tempax.axvline(30, **vline_kw)
-    tempax.axvline(500, **vline_kw)
-    tempax.axvline(900, **vline_kw)
-    tempax.set_xticks([30, 500, 900])
-    # Make all time axes the same
-    for ax in (xrdax, tempax):
-        # valid_times = times[times.index != pd.NaT]
-        with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-            pass
-        ax.set_ylim(times.min(), times.max())
-    # Plot requested CIF files
-    for (label, cifpath), cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
-        plot_cif(str(cifpath), ax=cifax, wavelength=LAMBDA, color=f"C{idx}", label=label)
-    # Format the CIF axes
-    for ax in cifaxs:
-        ax.set_yticks([])
-        ax.set_xticklabels([])
-        ax.legend(framealpha=0, loc='upper right', handlelength=0)
-    # Align all q axes
-    for ax in (xrdax, *cifaxs):
-        ax.set_xlim(np.min(qs), np.max(qs))
-    # Align all the cif vertical axes
-    for ax in cifaxs:
-        ax.set_ylim(0)
-    # Make the tick marks in a different domain if requested
-    if domain != 'q':
-        xrdax.set_yticklabels(convert_q_domain(xrdax.yticklabels))
-    return fig, (tempax, xrdax, *cifaxs)
-
 
 def plot_all_files(directory: str, method: str='integrator', domain:
                    str="q", plot_as: str='curves', wavelength:
@@ -1093,24 +471,6 @@ def load_temperatures_old(spec_path):
         df = pd.DataFrame(data=data, columns=scan.labels)
         all_scans[scan_name] = df
     return all_scans
-
-
-def twotheta_to_q(twotheta, wavelength=None, energy=None):
-    # Convert from X-ray energy to X-ray wavelength
-    if energy is not None:
-        wavelength = energy_to_wavelength(energy)
-    # Convert to q if necessary
-    if wavelength is None:
-        log.debug("No wavelength given, using default: %f", LAMBDA)
-        wavelength = LAMBDA
-    q = (4*np.pi/wavelength) * np.sin(np.radians(twotheta/2))
-    return q
-
-
-def q_to_twotheta(q, wavelength=LAMBDA):
-    radians = np.arcsin(q / 4 / np.pi * wavelength) * 2
-    tth = np.degrees(radians)
-    return tth
 
 
 class XRDPeak(xp.fitting.Curve):
