@@ -13,7 +13,7 @@ from .xrdutils import twotheta_to_q, q_to_twotheta, convert_q_domain
 log = logging.getLogger(__name__)
 
 
-def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax,
+def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax=None,
                         highlighted_scans=(0,),
                         plot_sqrt=True, domain='q', vmin=None, vmax=None):
     """Plot related data for in-situ heating experiments.
@@ -61,7 +61,11 @@ def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax,
     if not qs_are_linear:
         warnings.warn('Scattering lengths are not evenly spaced.')
     # Plot the temperature profile
-    temp_ax.plot(temps, times)
+    if temp_ax is not None:
+        temp_ax.plot(temps, times)
+        all_axs = (xrd_ax, temp_ax)
+    else:
+        all_axs = (xrd_ax,)
     extent = (qs[0,0], qs[0,-1], times.iloc[0], times.iloc[-1])
     if plot_sqrt:
         scaling_f = np.sqrt
@@ -74,15 +78,17 @@ def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax,
     xrd_ax.set_xlim(right=5.3)
     xrd_ax.set_ylabel('')
     xrd_ax.set_yticklabels([])
-    temp_ax.set_ylabel("Time /h")
-    temp_ax.set_xlabel('Temp /°C')
-    vline_kw = dict(ls=':', alpha=0.5, zorder=0)
-    temp_ax.axvline(30, **vline_kw)
-    temp_ax.axvline(500, **vline_kw)
-    temp_ax.axvline(900, **vline_kw)
-    temp_ax.set_xticks([30, 500, 900])
+    if temp_ax is not None:
+        temp_ax.set_ylabel("Time /h")
+        temp_ax.set_xlabel('Temp /°C')
+        vline_kw = dict(ls=':', alpha=0.5, zorder=0)
+        temp_ax.axvline(30, **vline_kw)
+        temp_ax.axvline(500, **vline_kw)
+        temp_ax.axvline(900, **vline_kw)
+        temp_ax.set_xticks([30, 500, 900])
     # Make all time axes the same
-    for ax in (xrd_ax, temp_ax):
+    
+    for ax in all_axs:
         # valid_times = times[times.index != pd.NaT]
         with pd.option_context('display.max_rows', None, 'display.max_columns', None):
             pass

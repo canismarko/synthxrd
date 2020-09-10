@@ -88,18 +88,6 @@ def get_mask(data, threshold=None):
     return mask
 
 
-def load_integrator(poni_file='images/lab6_1_S002_00000.poni'):
-    # ai = pyFAI.load('lab6_s3.poni')
-    # ai = pyFAI.load('coin_cell/S7_lab6.poni')
-    # ai = pyFAI.load('images/lab6_10-15-2019a.poni')
-    ai = pyFAI.load(str(poni_file))
-    # # Fix poni calibration
-    # poni = 0.0845 # 0.0852
-    # ai.set_poni1(0.0858)
-    # ai.set_poni2(0.0843)
-    return ai
-
-
 def export_xye(filepath, Is, qs=None, twotheta=None, Es=None):
     # Check that inputs are sane
     valid_x = qs is not None or twotheta is not None

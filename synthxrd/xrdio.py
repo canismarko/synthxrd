@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from typing import Sequence, Mapping
 from functools import lru_cache, partial
 
+import pyFAI
 import numpy as np
 from tqdm.notebook import tqdm
 import h5py
@@ -24,7 +25,8 @@ def import_refinements_gsas2_csv(refinement_csv, hdf_groupname, hdf_filename=DEF
     df.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'refinements', 'parameters'))
 
 
-def import_refinements_gsas2(refinement_gpx, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME, gsas_path=DEFAULT_GSAS_PATH):
+def import_refinements_gsas2(refinement_gpx, hdf_groupname,
+                             hdf_filename=DEFAULT_HDF_FILENAME, gsas_path=DEFAULT_GSAS_PATH):
     # Try and import
     try: gsas
     except NameError:
@@ -59,6 +61,7 @@ def import_refinements_gsas2(refinement_gpx, hdf_groupname, hdf_filename=DEFAULT
         for phase in phases:
             pid = phase['pId']
             params.update(_extract_cell_params(seq, pid, pattern.name))
+            params.update(_extract_atom_params(seq, pid, pattern.name))
             try:
                 hap_values = phase.getHAPvalues(pattern)
             except KeyError:
@@ -87,11 +90,6 @@ def import_refinements_gsas2(refinement_gpx, hdf_groupname, hdf_filename=DEFAULT
             if ds_name in base_grp:
                 del base_grp[ds_name]
             base_grp.create_dataset(ds_name, data=results[key])
-    # results = project.seqref()
-    # return results
-    # Import the refined parameters
-    # df = pd.read_csv(refinement_csv, index_col=1)
-    # df.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'refinements', 'parameters'))
 
 
 def _extract_phase_weight(hap_values, phase, phase_id):
@@ -108,6 +106,27 @@ def _extract_phase_weight(hap_values, phase, phase_id):
             new_key: np.nan,
         }
     return weight_frac
+
+
+def _extract_atom_params(sequential_refinement, phase, histogram):
+    try:
+        all_params = sequential_refinement.data[histogram]['parmDict']
+    except KeyError:
+        return {}
+    param_fmt = "{id}::{param}"
+    esd_fmt = "esd-{id}::{param}"
+    new_params = {}
+    atom_num = 0
+    while True:
+        param_names = ["Ax", "Ay", "Az", "Atype", "Afrac", "AUiso"]
+        keys = [f"{phase}::{k}:{atom_num}" for k in param_names]
+        try:
+            new_params.update({k: all_params[k] for k in keys})
+        except KeyError:
+            break
+        else:
+            atom_num += 1
+    return new_params
 
 
 def _extract_cell_params(sequential_refinement, phase, histogram):
@@ -468,3 +487,15 @@ def load_refinement_params(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     metadata = load_metadata(hdf_groupname=hdf_groupname, hdf_filename=hdf_filename)
     refined_params = pd.merge(metadata, params, how='right', left_on='refinement_filename', right_on='name')
     return refined_params
+
+
+def load_integrator(poni_file='images/lab6_1_S002_00000.poni'):
+    # ai = pyFAI.load('lab6_s3.poni')
+    # ai = pyFAI.load('coin_cell/S7_lab6.poni')
+    # ai = pyFAI.load('images/lab6_10-15-2019a.poni')
+    ai = pyFAI.load(str(poni_file))
+    # # Fix poni calibration
+    # poni = 0.0845 # 0.0852
+    # ai.set_poni1(0.0858)
+    # ai.set_poni2(0.0843)
+    return ai
