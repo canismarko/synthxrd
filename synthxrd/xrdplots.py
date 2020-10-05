@@ -33,10 +33,6 @@ def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax=None,
       Matplotlib axes to receive the XRD heatmap data
     temp_ax
       Matplotlib axes to receive the temperature data
-    ciffiles
-      iterable of paths to .CIF files that will be plotted below the
-      XRD scans. Each entry should be a dictionary with keys (label,
-      fpath).
     highlighted_scans
       Array of scan indices to plot with solid white lines for
       emphasis.
@@ -111,9 +107,11 @@ def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax=None,
 
 
 def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
-                                  ciffiles=[], highlighted_scans=(0,),
-                                  plot_sqrt=False, plot_log=False, domain='q',
-                                  vmin=None, vmax=None, cmap='viridis'):
+                                  ciffiles=[], wavelength=None,
+                                  highlighted_scans=(),
+                                  plot_sqrt=False, plot_log=False,
+                                  domain='q', vmin=None, vmax=None,
+                                  cmap='viridis'):
     """Plot related data for in-situ heating experiments.
     
     Parameters
@@ -129,6 +127,8 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
     ciffiles
       iterable of paths to .CIF files that will be plotted below the
       XRD scans. Each entry should be a tuple of (label, fpath).
+    wavelength
+      X-ray wavelength in angstroms.
     highlighted_scans
       Array of scan indices to plot with solid white lines for
       emphasis.
@@ -182,7 +182,7 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
         scaling_f = np.log
     else:
         scaling_f = np.asarray
-    xrdimg = xrdax.imshow(scaling_f(Is), origin='bottom', aspect='auto', extent=extent, vmin=vmin, vmax=vmax, cmap=cmap)
+    xrdimg = xrdax.imshow(scaling_f(Is), origin='lower', aspect='auto', extent=extent, vmin=vmin, vmax=vmax, cmap=cmap)
     plt.colorbar(mappable=xrdimg, cax=cax, cmap=cmap)
     # Annotate and format the axes
     xrdax.set_facecolor('black')
@@ -209,7 +209,7 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
         ax.set_ylim(times.min(), times.max())
     # Plot requested CIF files
     for (label, cifpath), cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
-        plot_cif(str(cifpath), ax=cifax, wavelength=LAMBDA, color=f"C{idx}", label=label)
+        plot_cif(str(cifpath), ax=cifax, wavelength=wavelength, color=f"C{idx}", label=label)
     # Format the CIF axes
     for ax in cifaxs:
         ax.set_yticks([])
@@ -235,9 +235,9 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
 
 
 def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
-                          ciffiles=[], plot_sqrt=False,
-                          plot_log=False, domain='q', cmap='viridis',
-                          scale=1, linewidth=0.7):
+                          ciffiles=[], wavelength=None,
+                          plot_sqrt=False, plot_log=False, domain='q',
+                          cmap='viridis', scale=1, linewidth=0.7):
     """Plot related data for in-situ heating experiments.
     
     Parameters
@@ -253,6 +253,8 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     ciffiles
       iterable of paths to .CIF files that will be plotted below the
       XRD scans. Each entry should be a tuple of (label, fpath).
+    wavelength
+      X-ray wavelength in angstroms.
     plot_sqrt
       If true, the image intensity will show the square-root of the
       diffraction signal.
@@ -267,7 +269,7 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     ax
       A list of axes that were drawn on, in order (temperature, XRD,
       cif0, cif1, ...)
-
+    
     """
     # Prepare data
     times = metadata['elapsed_time_s'] / 3600
@@ -309,8 +311,12 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     # Normalize the plot
     I_norm = (Is - np.min(Is)) / (np.max(Is) - np.min(Is))
     I_norm = linespace * scale * I_norm
-    for idx, (q, I) in enumerate(zip(qs, I_norm)):
-        plt.plot(q, I + linespace * idx, linewidth=linewidth, zorder=Is.shape[0]-idx)
+    # Prepare color mappable
+    nrange = (np.min(temps), np.max(temps))
+    norm = plt.Normalize(nrange[0], nrange[1] + (nrange[1]-nrange[0])*0.3)
+    mappable = plt.cm.ScalarMappable(norm=norm, cmap="plasma")
+    for idx, (q, I, T) in enumerate(zip(qs, I_norm, temps)):
+        xrdax.plot(q, I + linespace * idx, linewidth=linewidth, zorder=Is.shape[0]-idx, color=mappable.to_rgba(T))
     # Annotate and format the axes
     xrdax.set_xlabel("|q| /$A^{-1}$")
     xrdax.set_xlim(right=5.3)
@@ -335,7 +341,7 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
         ax.set_ylim(times.min(), times.max())
     # Plot requested CIF files
     for (label, cifpath), cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
-        plot_cif(str(cifpath), ax=cifax, wavelength=LAMBDA, color=f"C{idx}", label=label)
+        plot_cif(str(cifpath), ax=cifax, wavelength=wavelength, color=f"C{idx}", label=label)
     # Format the CIF axes
     for ax in cifaxs:
         ax.set_yticks([])
@@ -376,7 +382,10 @@ def plot_cif(ciffile, ax=None, I0=100, color='C0', label=None, domain='q',
     if energy is not None:
         wavelength = energy_to_wavelength(energy)
     if wavelength is None:
-        wavelength = LAMBDA
+        if domain not in ['q', 'd']:
+            raise AttributeError("*wavelength* is required when plotting CIF in two-theta.")
+        else:
+            wavelength = 1.
     powdermodel = cif_to_powder(ciffile, I0, wavelength=wavelength)
     if ax is None:
         ax = plt.gca()
