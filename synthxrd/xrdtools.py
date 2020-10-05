@@ -48,33 +48,10 @@ domain_labels = {
 }
 
 
-def rotate_2d_image(data):
-    data = np.swapaxes(data, 0, 1)
-    data = data[::-1, ::-1]
-    return data
-
-
-def load_data(fpath='NMC_carbonate_Li2CO3_Al2O3tube_1_S006_00000.tif'):
-    data = imageio.imread(fpath)
-    # Apply a median filter
-    data = ndimage.median_filter(input=data, size=5)
-    # Rotate data to match the PONI file
-    data = rotate_2d_image(data)
-    return data
-
-
 def fit_background(x, y, npt=15, k=5):
     bg_fitter = bayes.BayesianBackground()
     bg = bg_fitter(x, y, npt=npt, k=5)
     return bg
-
-
-def load_mask(fp=None):
-    if fp is None:
-        fp = DEFAULT_MASK
-    mask = PIL.Image.open(fp)
-    mask = np.asarray(mask)
-    return mask
 
 
 def get_mask(data, threshold=None):
@@ -140,122 +117,6 @@ def export_xye(filepath, Is, qs=None, twotheta=None, Es=None):
 #     metadata['refinement_filename'] = ["{}_{:05d}.csv".format(hdf_groupname, i) for i in range(len(metadata))]
 #     # Save to the HDF5 file
 #     metadata.to_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'metadata'))
-
-
-class SpecScan():
-    file_path = None
-    scan_re = re.compile(
-        "#S\s+"
-        "([0-9]+)\s+"    # Scan number
-        "ascan\s+phi\s+"
-        "([-0-9]+)\s+"   # Start
-        "([-0-9]+)\s+"   # Stop
-        "([0-9]+)\s+"    # N_points
-        "([0-9]+)"       # Exposure time
-    )
-    date_re = re.compile("#D\s+(.*)")
-    def __init__(self, spec_lines, ):
-        self.parse_spec_lines(spec_lines)
-
-    def xml_lines(self, spec_lines):
-        """Generate through the UXML lines and return on the first non-xml
-        line."""
-        for line in spec_lines:
-            if line[:5] == '#UXML':
-                yield line
-            else:
-                # Push the non-XML line back onto the stack
-                spec_lines.send(line)
-                break
-    
-    def parse_xml_lines(self, spec_lines):
-        xml_string = "\n".join([l[6:].rstrip('"') for l in spec_lines])
-        xml_string = f"<specblock>{xml_string}</specblock>"
-        block = ElementTree.fromstring(xml_string)
-        for group in block:
-            if group.attrib['name'] == "ad_file_info":
-                fname = [c.text for c in group.findall("dataset") if c.attrib['name'] == "file_name_last_full"][0]
-                self.file_path = "/".join(fname.split('/')[-3:])
-    
-    def generate_lines(self, spec_lines):
-        """Creates a generator with the ability to repeat values using
-        ``send()``."""
-        for line in spec_lines:
-            next_line = yield line.strip()
-            # Capture a value so it can be pushed back onto the stack
-            if next_line:
-                yield None # To return from the original send() call
-                yield next_line # Will be yielded on the next ``next()``
-    
-    def parse_spec_lines(self, spec_lines):
-        spec_lines = self.generate_lines(spec_lines)
-        for line in spec_lines:
-            # Scan header line
-            scan_match = self.scan_re.match(line)
-            if scan_match:
-                self.scan_num = scan_match.group(1)
-                self.kphi = int((int(scan_match.group(2)) + int(scan_match.group(3))) / 2)
-            # Date line
-            date_match = self.date_re.match(line)
-            if date_match:
-                self.timestamp = date_match.group(1)
-            # Metadata line
-            if line[:3] == '#L ':
-                metadata_str = StringIO("\n".join([line[3:], next(spec_lines)]))
-                self.metadata = pd.read_csv(metadata_str, sep=r'\s+')
-            # embedded xml parsing
-            if line[:5] == '#UXML':
-                self.parse_xml_lines([line] + list(self.xml_lines(spec_lines)))
-
-    def __repr__(self):
-        if self.file_path is not None:
-            this_repr = f"<SpecScan: {self.file_path}>"
-        else:
-            this_repr = f"<SpecScan: {self.scan_num}>"
-        return this_repr
-
-
-def parse_spec_file(spec_file: Path, kphi_tol=0.):
-    # Prepare regular expressions for parsing the lines
-    # Some generic containers to hold the parsed results
-    samples = {
-    }
-    with open(spec_file, mode='r') as fp:
-        line = fp.readline()
-        while line:
-            # Check if this is the start of a scan block
-            is_scan_line = line[:2] == "#S"
-            if is_scan_line:
-                log.debug("Found scan line: %s", line)
-                scanlines = [line]
-                while "Trajectory scan completed" not in line and line:
-                    # Extract data from the sample line
-                    scanlines.append(line)
-                    line = fp.readline()
-                # Check if we reached the end of the file
-                if line == "":
-                    break
-                # Create the scan object
-                scanlines.append(line)
-                scan = SpecScan(scanlines)
-                log.debug("Created scan object: %s", scan)
-                # Create a new entry for this sample if needed
-                matches = [abs(scan.kphi - kphi) <= kphi_tol for kphi in samples.keys()]
-                if matches.count(True) > 1:
-                    msg = f"kphi {scan.kphi} matches multiple existing entries: {samples.keys()}. "
-                    msg += "Consider lowering the value of *kphi_tol*."
-                    raise exceptions.AmbiguousKphi(msg)
-                elif matches.count(True) == 0:
-                    # No existing kphi's are close, so make a new entry
-                    samples[scan.kphi] = []
-                    sample_kphi = scan.kphi
-                else:
-                    # Matched one existing kphi value, so use that
-                    sample_kphi = list(samples.keys())[matches.index(True)]
-                # Append this scan number to the list of scans
-                samples[sample_kphi].append(scan)
-            line = fp.readline()
-    return samples
 
 
 # Build the file list

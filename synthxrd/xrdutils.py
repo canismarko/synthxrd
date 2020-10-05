@@ -1,6 +1,12 @@
 import numpy as np
 
 
+def rotate_2d_image(data):
+    data = np.swapaxes(data, 0, 1)
+    data = data[::-1, ::-1]
+    return data
+
+
 def convert_q_domain(q, domain, wavelength=None):
     """Convert q values to d-spacing ('d') or 2θ° ('twotheta')."""
     if wavelength is None:

@@ -1,6 +1,9 @@
+import warnings
+
 import logging
 from functools import lru_cache
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -233,7 +236,8 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
 
 def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
                           ciffiles=[], plot_sqrt=False,
-                          plot_log=False, domain='q', cmap='viridis'):
+                          plot_log=False, domain='q', cmap='viridis',
+                          scale=1, linewidth=0.7):
     """Plot related data for in-situ heating experiments.
     
     Parameters
@@ -252,6 +256,9 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     plot_sqrt
       If true, the image intensity will show the square-root of the
       diffraction signal.
+    scale
+      Multiplier for scaling the XRD intensity, useful for making the
+      plots easier to see
     
     Returns
     =======
@@ -260,7 +267,7 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     ax
       A list of axes that were drawn on, in order (temperature, XRD,
       cif0, cif1, ...)
-    
+
     """
     # Prepare data
     times = metadata['elapsed_time_s'] / 3600
@@ -297,14 +304,13 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
         scaling_f = np.log
     else:
         scaling_f = np.asarray
-    # xrdimg = xrdax.imshow(scaling_f(Is), origin='bottom', aspect='auto', extent=extent, vmin=vmin, vmax=vmax, cmap=cmap)
     # Normalize and plot each XRD pattern
     linespace = np.max(times) / Is.shape[0]
     # Normalize the plot
     I_norm = (Is - np.min(Is)) / (np.max(Is) - np.min(Is))
-    I_norm = linespace * 6 * I_norm
+    I_norm = linespace * scale * I_norm
     for idx, (q, I) in enumerate(zip(qs, I_norm)):
-        plt.plot(q, I + linespace * idx, linewidth=0.7, zorder=Is.shape[0]-idx)
+        plt.plot(q, I + linespace * idx, linewidth=linewidth, zorder=Is.shape[0]-idx)
     # Annotate and format the axes
     xrdax.set_xlabel("|q| /$A^{-1}$")
     xrdax.set_xlim(right=5.3)
