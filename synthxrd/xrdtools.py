@@ -13,7 +13,7 @@ from pathlib import Path
 
 import h5py
 from scipy import fftpack, ndimage, signal, stats
-from silx.io.specfile import SpecFile
+# from silx.io.specfile import SpecFile
 import pandas as pd
 from tqdm import tqdm_notebook as tqdm
 import skimage
@@ -311,15 +311,15 @@ def plot_temperatures(spec_path):
     return artists
 
 
-def load_temperatures_old(spec_path):
-    sf = SpecFile(spec_path)
-    all_scans = {}
-    for scan_name in sf.keys():
-        scan = sf[scan_name]
-        data = np.swapaxes(scan.data, 0, 1)    
-        df = pd.DataFrame(data=data, columns=scan.labels)
-        all_scans[scan_name] = df
-    return all_scans
+# def load_temperatures_old(spec_path):
+#     sf = SpecFile(spec_path)
+#     all_scans = {}
+#     for scan_name in sf.keys():
+#         scan = sf[scan_name]
+#         data = np.swapaxes(scan.data, 0, 1)    
+#         df = pd.DataFrame(data=data, columns=scan.labels)
+#         all_scans[scan_name] = df
+#     return all_scans
 
 
 class XRDPeak(xp.fitting.Curve):
@@ -432,6 +432,7 @@ def plot_xrd_params(directory: str, specfile: str, specscan: str,
       each pattern.
     
     """
+    raise DeprecationWarning("I think this is an old routine. If needed, it will need to be updated. -Mark")
     # Load image files
     files = find_files(directory)[which_files]
     imgdata = integrate_files(files, method='integrator')
