@@ -19,7 +19,7 @@ from xml.etree import ElementTree
 from dioptas.model.util.BackgroundExtraction import extract_background
 
 from .xrdtools import DEFAULT_HDF_FILENAME
-from .xrdutils import rotate_2d_image
+from .xrdutils import rotate_2d_image, twotheta_to_q
 
 import pandas as pd
 
@@ -345,13 +345,114 @@ def parse_spec_file(spec_file: Path, kphi_tol=0.):
     return samples
 
 
-def load_data(fpath):
+def load_data(fpath, rotations=1):
     data = imageio.imread(fpath)
     # Apply a median filter
     data = ndimage.median_filter(input=data, size=5)
     # Rotate data to match the PONI file
-    data = rotate_2d_image(data)
+    for r in range(rotations):
+        data = rotate_2d_image(data)
     return data
+
+
+def load_1d_dioptas(file_name: Path, qmin: float=0):
+    """Load an integrated 1D pattern saved by Dioptas.
+    
+    Parameters
+    ==========
+    file_name
+      Path to the integrated .xy file to import
+    qmin
+      Minimum scattering vector length that gets included.
+    
+    Return
+    ======
+    pattern : dict
+      The integrated data and accompanying metadata. 2θ, Q and
+      intensity data are in keys "tth", "q" and "I".
+    
+    """
+    pattern = {}
+    # Read data via pandas
+    data = pd.read_csv(file_name, skiprows=23, names=("tth", "I"), sep="\s+")
+    pattern['tth'] = data.tth
+    pattern['I'] = data.I
+    # Parse calibration data
+    with open(file_name, mode="r") as fp:
+        calib = [next(fp) for x in range(23)]
+    wl_re = re.compile("# Wavelength: ([-0-9.e]+) m")
+    distance_re = re.compile("# Distance Sample-beamCenter: ([.0-9]+) mm")
+    for ln in calib:
+        # Distance
+        match = distance_re.match(ln)
+        if match:
+            pattern['detector_distance_calibrated'] = float(match.group(1))
+        # Wavelength
+        match = wl_re.match(ln)
+        if match:
+            wavelength_A = float(match.group(1)) * 1e10
+            pattern['wavelength_A'] = wavelength_A
+            pattern['q'] = twotheta_to_q(pattern['tth'], wavelength_A)
+    if 'q' in pattern.keys():
+        is_in_range = pattern['q'] > qmin
+        pattern['q'] = pattern['q'][is_in_range]
+        pattern['I'] = pattern['I'][is_in_range]
+        pattern['tth'] = pattern['tth'][is_in_range]
+    return pattern
+
+
+def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin: float=0):
+    """Load the molten salt data sent to 17-BM for XRD analysis.
+    
+    Parameters
+    ==========
+    tiff_dir : Path
+      Location of the tiff files that will be imported.
+    integrated_dir : Path
+      Location of the 1D Dioptas integrated .xy files.
+    metadata_file : Path
+      Location of the excel file holding the sample names.
+    qmin : float
+      The minimum q value to export.
+    
+    Returns
+    =======
+    patterns : pd.DataFrame
+      A dataframe with all the XRD scans and their accompanying
+      metadata.
+    
+    """
+    df = pd.DataFrame()
+    for xyfile in integrated_dir.iterdir():
+        if xyfile.suffix == '.xy':
+            metadata_file = tiff_dir/f"{xyfile.stem}.tif.metadata"
+            this_row = load_1d_dioptas(xyfile, qmin=qmin)
+            this_row['metadata_file'] = metadata_file
+            # Parse metadata
+            metadata = parse_metadata_17bm(metadata_file)
+            this_row['sample_name'] = metadata['sample_name']
+            this_row['sample_position'] = int(metadata['sample_position'])
+            this_row['chemical_formula'] = metadata['chemical_formula']
+            this_row['chemical_name'] = metadata['chemical_name']
+            this_row['detector_distance'] = round(float(metadata['Distance']))
+            is_calibrant = this_row['sample_position'] == 0
+            if not is_calibrant:
+                df = df.append(this_row, ignore_index=True)
+    return df
+
+
+def parse_metadata_17bm(metadata_file: Path):
+    """Load a metadata file and return as dictionary."""
+    md = {}
+    with open(metadata_file, mode='r') as fp:
+        for ln in fp:
+            try:
+                key, val = ln.split("=", 1)
+            except ValueError:
+                pass
+            else:
+                md[key] = val.strip()
+    return md
 
 
 class XRDImporter(IOBase):
@@ -500,6 +601,37 @@ class XRDImporter(IOBase):
         else:
             raise exceptions.NoBackgroundFile("Background file not available.")
         return bg_img
+
+    def integrate_tiff(self, tiff_path, return_cake=False, rotations=1):
+        """Load a TIFF and return integrated data.
+        
+        Parameters
+        ==========
+        data
+          2D data as np.ndarray.
+        return_cake : optional
+          If true, return the 2D cake as well as the 1D integrated
+          pattern.
+        rotations : optional
+          How many 90° rotations to perform on the 2D image before
+          unwarping
+        
+        Returns
+        =======
+        qs : 1D ndarray
+          Q scattering lengths for the 1D integrated data
+        Is : 1D ndarray
+          Integrated intensity data
+        cake : 2D ndarray, optional
+          Caked 2D data.
+        qs_cake : 1D ndarray, optional
+          Q scattering lengths for the 2D cake's 1st axis.
+        chis : 2D ndarray, optional
+          Azimuthal angles for the cake's 0th axis.
+
+        """
+        data = load_data(tiff_path, rotations=rotations)
+        return self.integrate_data(data, return_cake=return_cake)
     
     def integrate_data(self, data, integrator=None, method='integrator',
                        mask=None, threshold=None, qmin=0.4, npt=None,
@@ -547,11 +679,12 @@ class XRDImporter(IOBase):
           Q scattering lengths for the 2D cake's 1st axis.
         chis : 2D ndarray, optional
           Azimuthal angles for the cake's 0th axis.
-
+        
         """
         if mask is None:
             mask = load_mask(self.mask_file)
         if integrator is None:
+            print(self.poni_file)
             integrator = load_integrator(self.poni_file)
         # Determine default values for the number of points
         if npt is None:
