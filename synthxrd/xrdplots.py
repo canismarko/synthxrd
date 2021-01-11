@@ -8,8 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy import stats
-import xrayutilities as xru
 
+from .cif import plot_cif
 from .xrdutils import twotheta_to_q, q_to_twotheta, convert_q_domain
 
 
@@ -340,8 +340,8 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
             pass
         ax.set_ylim(times.min(), times.max())
     # Plot requested CIF files
-    for (label, cifpath), cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
-        plot_cif(str(cifpath), ax=cifax, wavelength=wavelength, color=f"C{idx}", label=label)
+    for ciff, cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
+        plot_cif(ciffile=ciff, ax=cifax, wavelength=wavelength, color=f"C{idx}", label=ciff.name)
     # Format the CIF axes
     for ax in cifaxs:
         ax.set_yticks([])
@@ -359,51 +359,3 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     return fig, (tempax, xrdax, *cifaxs)
 
 
-@lru_cache()
-def cif_to_powder(ciffile, I0=100, wavelength=None):
-    try:
-        xu_cif = xru.materials.CIFFile(ciffile)
-        xu_crystal = xru.materials.Crystal(name="b-CsCl", lat=xu_cif.SGLattice())
-    except:
-        log.error("Failed to load cif: %s", ciffile)
-        if hasattr(xu_cif, 'close'):
-            xu_cif.close()
-        raise
-    powder = xru.simpack.smaterials.Powder(xu_crystal, 1)
-    opts = {}
-    if wavelength is not None:
-        opts['wl'] = wavelength
-    pdiff = xru.simpack.PowderDiffraction(powder, tt_cutoff=80, **opts)
-    return pdiff
-
-
-def plot_cif(ciffile, ax=None, I0=100, color='C0', label=None, domain='q',
-             wavelength=None, alpha=0.5, energy=None, *args, **kwargs):
-    if energy is not None:
-        wavelength = energy_to_wavelength(energy)
-    if wavelength is None:
-        if domain not in ['q', 'd']:
-            raise AttributeError("*wavelength* is required when plotting CIF in two-theta.")
-        else:
-            wavelength = 1.
-    powdermodel = cif_to_powder(ciffile, I0, wavelength=wavelength)
-    if ax is None:
-        ax = plt.gca()
-    # Do the plotting
-    label_added = False
-    for idx, hkl in enumerate(powdermodel.data):
-        data = powdermodel.data[hkl]
-        ang = data['ang']
-        # Decide if we're doing q or two-theta
-        q = twotheta_to_q(2*ang, wavelength=wavelength)
-        x = convert_q_domain(q, domain=domain, wavelength=wavelength)
-        # Plot reflections
-        r = data['r']
-        if r > 0.01:
-            if not label_added:
-                _label = label
-                label_added = True
-            else:
-                _label = None
-            line = ax.plot([x, x], [0, r*I0], color=color, alpha=alpha, label=_label, *args, **kwargs)
-    return line[0]

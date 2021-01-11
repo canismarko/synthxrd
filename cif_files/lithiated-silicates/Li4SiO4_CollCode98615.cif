@@ -1,0 +1,92 @@
+
+#(C) 2020 by FIZ Karlsruhe - Leibniz Institute for Information Infrastructure.  All rights reserved.
+data_98615-ICSD
+_database_code_ICSD 98615
+_audit_creation_date 2005-04-01
+_chemical_name_common 'Tetralithium silicate'
+_chemical_formula_structural 'Li4 (Si O4)'
+_chemical_formula_sum 'Li4 O4 Si1'
+_chemical_name_structure_type Na4SiO4#K4SnO4
+_exptl_crystal_density_diffrn 2.38
+_citation_title
+
+;
+Einkristall-Synthese hochschmelzender Oxyde bei niederer Temperatur:
+gamma-(Li4 (Si O4)) - ohne Fehlordnung, isotyp mit Na4 (Sn O4). (Was heisst
+'Isotypie'?)
+;
+loop_
+_citation_id
+_citation_journal_full
+_citation_year
+_citation_journal_volume
+_citation_page_first
+_citation_page_last
+_citation_journal_id_ASTM
+primary 'Zeitschrift fuer Anorganische und Allgemeine Chemie (1950) (DE)' 2003
+629 1285 1293 ZAACAB
+loop_
+_citation_author_citation_id
+_citation_author_name
+primary 'Hoppe, R.'
+primary 'Bernet, K.'
+primary 'Moeller, A.'
+_cell_length_a 7.519
+_cell_length_b 5.648
+_cell_length_c 5.031
+_cell_angle_alpha 124.15
+_cell_angle_beta 97.18
+_cell_angle_gamma 100.26
+_cell_volume 167.21
+_cell_formula_units_Z 2
+_space_group_name_H-M_alt 'P -1'
+_space_group_IT_number 2
+loop_
+_space_group_symop_id
+_space_group_symop_operation_xyz
+1 '-x, -y, -z'
+2 'x, y, z'
+loop_
+_atom_type_symbol
+_atom_type_oxidation_number
+Si4+ 4
+Li1+ 1
+O2- -2
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_Wyckoff_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_B_iso_or_equiv
+_atom_site_occupancy
+Si1 Si4+ 2 i 0.2373(1) 0.8420(2) 0.0598(2) . 1.
+Li1 Li1+ 2 i 0.4428(7) 0.4899(11) 0.7265(12) . 1.
+Li2 Li1+ 2 i 0.4072(6) 0.9248(11) 0.6727(11) . 1.
+Li3 Li1+ 2 i 0.1919(6) 0.3901(10) 0.1780(11) . 1.
+Li4 Li1+ 2 i 0.9945(7) 0.7629(11) 0.4980(12) . 1.
+O1 O2- 2 i 0.3730(2) 0.7008(4) 0.1811(4) . 1.
+O2 O2- 2 i 0.3679(2) 0.1794(4) 0.2095(4) . 1.
+O3 O2- 2 i 0.0487(2) 0.8502(4) 0.1851(4) . 1.
+O4 O2- 2 i 0.8063(2) 0.3610(4) 0.3465(4) . 1.
+loop_
+_atom_site_aniso_label
+_atom_site_aniso_type_symbol
+_atom_site_aniso_U_11
+_atom_site_aniso_U_22
+_atom_site_aniso_U_33
+_atom_site_aniso_U_12
+_atom_site_aniso_U_13
+_atom_site_aniso_U_23
+Si1 Si4+ .0067(3) .0079(3) .0068(3) .0020(2) .0023(2) .0044(3)
+Li1 Li1+ .0175(23) .0117(23) .0129(21) .0055(19) .0062(18) .0048(19)
+Li2 Li1+ .0125(21) .0164(24) .0138(21) .0027(18) .0031(17) .0095(19)
+Li3 Li1+ .0158(22) .0124(23) .0125(21) .0028(18) .0063(18) .0065(19)
+Li4 Li1+ .0131(20) .0121(23) .0137(20) .0053(17) .0020(16) .0068(19)
+O1 O2- .0093(88) .0117(9) .0092(8) .0040(7) .0034(6) .0079(7)
+O2 O2- .0082(8) .0087(8) .0111(8) .0015(7) .0018(6) .0058(7)
+O3 O2- .0086(8) .0114(9) .0109(8) .0038(7) .0047(6) .0070(7)
+O4 O2- .0096(8) .0121(9) .0078(8) .0037(7) .0033(6) .0059(7)
+#End of TTdata_98615-ICSD

@@ -1,0 +1,72 @@
+
+#(C) 2020 by FIZ Karlsruhe - Leibniz Institute for Information Infrastructure.  All rights reserved.
+data_853-ICSD
+_database_code_ICSD 853
+_audit_creation_date 1980-01-01
+_audit_update_record 2011-08-01
+_chemical_name_common 'Dilithium catena-silicate'
+_chemical_formula_structural 'Li2 (Si O3)'
+_chemical_formula_sum 'Li2 O3 Si1'
+_chemical_name_structure_type Na2SiO3
+_exptl_crystal_density_diffrn 2.53
+_citation_title 'Refinement of the crystal structure of lithium polysilicate'
+loop_
+_citation_id
+_citation_journal_full
+_citation_year
+_citation_journal_volume
+_citation_page_first
+_citation_page_last
+_citation_journal_id_ASTM
+primary
+
+;
+Acta Crystallographica, Section B: Structural Crystallography and Crystal
+Chemistry
+; 1977 33 901 902 ACBCAR
+loop_
+_citation_author_citation_id
+_citation_author_name
+primary 'Hesse, K.F.'
+_cell_length_a 9.392(2)
+_cell_length_b 5.397(2)
+_cell_length_c 4.660(1)
+_cell_angle_alpha 90.
+_cell_angle_beta 90.
+_cell_angle_gamma 90.
+_cell_volume 236.21
+_cell_formula_units_Z 4
+_space_group_name_H-M_alt 'C m c 21'
+_space_group_IT_number 36
+loop_
+_space_group_symop_id
+_space_group_symop_operation_xyz
+1 'x, -y, z+1/2'
+2 '-x, -y, z+1/2'
+3 '-x, y, z'
+4 'x, y, z'
+5 'x+1/2, -y+1/2, z+1/2'
+6 '-x+1/2, -y+1/2, z+1/2'
+7 '-x+1/2, y+1/2, z'
+8 'x+1/2, y+1/2, z'
+loop_
+_atom_type_symbol
+_atom_type_oxidation_number
+Si4+ 4
+Li1+ 1
+O2- -2
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_Wyckoff_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_B_iso_or_equiv
+_atom_site_occupancy
+Si1 Si4+ 4 a 0 0.1703(4) 0.4912(45) . 1.
+Li1 Li1+ 8 b 0.1737(9) 0.3449(18) -.0024(35) . 1.
+O1 O2- 8 b 0.1446(6) 0.3077(6) 0.4108(9) . 1.
+O2 O2- 4 a 0 0.1143(9) 0.8461(11) . 1.
+#End of TTdata_853-ICSD

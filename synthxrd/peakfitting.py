@@ -1,21 +1,49 @@
+import warnings
+
+import pandas as pd
 import numpy as np
 import scimap
 
+from . import exceptions
 
+
+# These q-ranges are specific to layered NMC-type cathodes
 peak_qranges = {
     '003': (1.0, 1.6),
+    '104': (2.9, 3.2),
 }
 
 
 def get_full_qrange(peaks):
     """Get the needed q range to cover all peaks in a set."""
-    qmin = min(peak_qranges[hkl][0] for hkl in peaks)
-    qmax = max(peak_qranges[hkl][1] for hkl in peaks)
-    return (qmin, qmax)
+    # Resolve any peaks pre-defined by HKL
+    peaks = [(peak_qranges[p] if p in peak_qranges.keys() else p) for p in peaks]
+    print(peaks)
+    # Find the min and max q value
+    try:
+        mins = [min(peak) for peak in peaks]
+        maxs = [max(peak) for peak in peaks]
+    except KeyError:
+        missing_hkl = [hkl for hkl in peaks if hkl not in peak_qranges]
+        raise exceptions.UnknownHKL("peak_qranges missing definitions: {}"
+                                    "".format(missing_hkl)) from None
+    # Check for non-overlapping regions
+    minmaxs = list(zip(mins, maxs))
+    for (rangeA, rangeB) in zip(minmaxs, minmaxs[1:]):
+        has_qgap = rangeA[1] < rangeB[0]
+        if has_qgap:
+            warnings.warn("Q ranges for peak fitting do not overlap, "
+                          "consider fitting distinct peaks one at a time.",
+                          RuntimeWarning)
+            break
+    return (min(mins), max(maxs))
 
 
-def fit_peaks(qs, Is, peaks=('003',)):
-    """
+def fit_peaks(qs, Is, peaks=('003',))->pd.DataFrame:
+    """Fit a specific reflection to all the patterns in *qs*, *Is*.
+    
+    Peaks can also be overlapping adjacent peaks, but this will not
+    work well if the peaks are too far separated.
     
     Parameters
     ==========
@@ -23,26 +51,36 @@ def fit_peaks(qs, Is, peaks=('003',)):
       2D array of scattering lengths in shape (scan, scattering_pos)
     Is :
       2D array of scattering intensities in shape (scan, scattering_pos)
-    num_peaks :
-      Number of peaks to fit
-    qmin :
-      Lower bound on the q range used for fitting
-    qmax :
-      Upper bound on the q range used for fitting
+    peaks
+      An iterable of hkl indices to fit. Must be defined in ``peak_qranges``.
     
     Returns
     =======
-      An array of peak fit objects for each scan, one for each peak.
+    df : pd.DataFrame
+      The fitted parameters and peak objects arranged in a pandas
+      DataFrame.
     
     """
-    peak_group = scimap.peakfitting.Peak()
+    if len(peaks) > 1:
+        raise NotImplementedError("Overlapping peaks not yet implemented.")
     qmin, qmax = get_full_qrange(peaks)
-    print(qmin, qmax)
     is_in_bounds = np.logical_and(np.greater_equal(qs, qmin), np.less_equal(qs, qmax))
     # Go through and do the fitting
     peak_group = scimap.peakfitting.Peak()
-    peaks = []
+    peaks = pd.DataFrame()
     for q, I, ispeak in zip(qs, Is, is_in_bounds):
+        peak_group = scimap.peakfitting.Peak()
         peak_group.fit(q[ispeak], I[ispeak])
-        peaks.append(peak_group)
+        # Append the fitted row to the pandas dataframe
+        predicted = peak_group.predict(q)
+        area = peak_group.area()
+        peaks = peaks.append(other={
+            'center_q': peak_group.center(),
+            'fwhm': peak_group.fwhm(),
+            'area': area,
+            'breadth': area / np.max(predicted),
+            'peak': peak_group,
+        }, ignore_index=True)
+    # Add some additional columns to the dataframe
+    peaks['center_d'] = 2 * np.pi / peaks.center_q
     return peaks
