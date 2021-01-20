@@ -1,0 +1,72 @@
+
+#(C) 2020 by FIZ Karlsruhe - Leibniz Institute for Information Infrastructure.  All rights reserved.
+data_15466-ICSD
+_database_code_ICSD 15466
+_audit_creation_date 1986-09-24
+_audit_update_record 2006-04-01
+_chemical_name_common 'Lead oxide'
+_chemical_formula_structural 'Pb O'
+_chemical_formula_sum 'O1 Pb1'
+_chemical_name_structure_type Litharge#PbO
+_exptl_crystal_density_diffrn 9.43
+_citation_title 'On the crystal structure of tetragonal (red) Pb O'
+loop_
+_citation_id
+_citation_journal_full
+_citation_year
+_citation_journal_volume
+_citation_page_first
+_citation_page_last
+_citation_journal_id_ASTM
+primary 'Acta Crystallographica' 1961 14 1304 1304 ACCRA9
+loop_
+_citation_author_citation_id
+_citation_author_name
+primary 'Leciejewicz, J.'
+_cell_length_a 3.96(1)
+_cell_length_b 3.96(1)
+_cell_length_c 5.01(1)
+_cell_angle_alpha 90.
+_cell_angle_beta 90.
+_cell_angle_gamma 90.
+_cell_volume 78.56
+_cell_formula_units_Z 2
+_space_group_name_H-M_alt 'P 4/n m m Z'
+_space_group_IT_number 129
+loop_
+_space_group_symop_id
+_space_group_symop_operation_xyz
+1 'y+1/2, x+1/2, -z'
+2 '-y, x+1/2, -z'
+3 'y+1/2, -x, -z'
+4 '-y, -x, -z'
+5 'x+1/2, y+1/2, -z'
+6 '-x, y+1/2, -z'
+7 'x+1/2, -y, -z'
+8 '-x, -y, -z'
+9 '-y+1/2, -x+1/2, z'
+10 'y, -x+1/2, z'
+11 '-y+1/2, x, z'
+12 'y, x, z'
+13 '-x+1/2, -y+1/2, z'
+14 'x, -y+1/2, z'
+15 '-x+1/2, y, z'
+16 'x, y, z'
+loop_
+_atom_type_symbol
+_atom_type_oxidation_number
+Pb2+ 2
+O2- -2
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_symmetry_multiplicity
+_atom_site_Wyckoff_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+_atom_site_B_iso_or_equiv
+_atom_site_occupancy
+Pb1 Pb2+ 2 c 0.25 0.25 0.237(2) . 1.
+O1 O2- 2 a 0.75 0.25 0 . 1.
+#End of TTdata_15466-ICSD

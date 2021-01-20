@@ -55,6 +55,12 @@ all_cifs = AllCifs(
     SiO4=CIF(name=r'$Li_4SiO_4$', path=cifroot/'Li4SiO4_ICSD_CollCode25759.cif'),
     WO3=CIF(name=r'$WO_3$', path=cifroot/'WO3.cif'),
     WO3_B=CIF(name=r'$WO_3$', path=cifroot/'WO3_CollCode32001.cif'),
+    # Lead-acid structures
+    Pb=CIF(name=r"Pb", path=cifroot/"Pb_ICSD_CollCode96501.cif"),
+    PbSO4=CIF(name=r"$PbSO_4$", path=cifroot/"PbSO4_ICSD_CollCode154273.cif"),
+    PbO2_alpha=CIF(name=r"$\alpha-PbO_2$", path=cifroot/"PbO2_alpha_ICSD_CollCode415268.cif"),
+    PbO2_beta=CIF(name=r"$\beta-PbO_2$", path=cifroot/"PbO2_beta_ICSD_CollCode8491.cif"),
+    PbO=CIF(name=r"PbO", path=cifroot/"PbO_ICSD_CollCode15466.cif"),
 )
 
 
