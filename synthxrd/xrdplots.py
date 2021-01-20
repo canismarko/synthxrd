@@ -86,7 +86,6 @@ def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax=None,
         temp_ax.axvline(900, **vline_kw)
         temp_ax.set_xticks([30, 500, 900])
     # Make all time axes the same
-    
     for ax in all_axs:
         # valid_times = times[times.index != pd.NaT]
         with pd.option_context('display.max_rows', None, 'display.max_columns', None):

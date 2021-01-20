@@ -758,6 +758,12 @@ def load_metadata(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     return metadata
 
 
+def load_fitting(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
+    """Load fitting data previously saved to HDF5 by."""
+    metadata = pd.read_hdf(hdf_filename, '/'.join([hdf_groupname, 'fitting', 'parameters']))
+    return metadata
+
+
 def load_refinement_params(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
     """Load the refined parameters from disk, and merge with the stored metadata."""
     params = pd.read_hdf(hdf_filename, key=os.path.join(hdf_groupname, 'refinements', 'parameters'))

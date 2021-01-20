@@ -18,7 +18,6 @@ def get_full_qrange(peaks):
     """Get the needed q range to cover all peaks in a set."""
     # Resolve any peaks pre-defined by HKL
     peaks = [(peak_qranges[p] if p in peak_qranges.keys() else p) for p in peaks]
-    print(peaks)
     # Find the min and max q value
     try:
         mins = [min(peak) for peak in peaks]
