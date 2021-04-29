@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 from dataclasses import dataclass
 from functools import lru_cache
@@ -15,13 +16,23 @@ log = logging.getLogger(__name__)
 class CIF():
     name: str
     path: Path
+    icsd_re = re.compile("[a-zA-Z0-9_()]+_CollCode([0-9]+).cif")
+    
+    @property
+    def icsd_code(self):
+        match = self.icsd_re.match(self.path.name)
+        if match:
+            return match.group(1)
+        else:
+            return None
 
 
 class AllCifs():
     _cifs = {}
+    _cif_values = None
     def __init__(self, **kwargs):
         self._cifs = kwargs
-
+    
     def __str__(self):
         s = "[\n"
         for key, val in self._cifs.items():
@@ -29,15 +40,25 @@ class AllCifs():
             s = s + this_line
         s += "]\n"
         return s
-
+    
     def __dir__(self):
         dirs = super().__dir__()
         # Add a DIR entry for each cif file
         dirs.extend(self._cifs.keys())
         return dirs
-
+    
     def __getattr__(self, name):
         return self._cifs[name]
+    
+    def __iter__(self):
+        self._cif_values = iter(self._cifs.values())
+        return self
+    
+    def __next__(self):
+        return next(self._cif_values)
+    
+    def __len__(self):
+        return len(self._cifs)
 
 
 cifroot = Path(__file__).resolve().parent.parent / "cif_files"
@@ -49,6 +70,7 @@ all_cifs = AllCifs(
     LH_HYDRATE=CIF(name=r'$LiOH\bullet H_2O$', path=cifroot/'LiOHH2O_CollCode9138.cif'),
     LH=CIF(name=r'LiOH', path=cifroot/'LiOH_CollCode34888.cif'),
     NMC622=CIF(name=r'NMC-622', path=cifroot/'NMC622_ICSD_CollCode159320.cif'),
+    NMC811=CIF(name=r'NMC-811', path=cifroot/'NMC811_ICSD_CollCode8362.cif'),
     Mn2O3=CIF(name=r'$Mn_2O_3$', path=cifroot/'Mn2O3_CollCode187263.cif'),
     Ni3O4=CIF(name=r'$Ni_{0.75}O$ (ordered, MP)', path=cifroot/'Ni3O4_mp-656887_symmetrized.cif'),
     Co3O4=CIF(name=r'$Co_3O_4$ (spinel)', path=cifroot/'Co3O4_CollCode36256.cif'),

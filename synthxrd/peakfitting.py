@@ -3,6 +3,7 @@ import warnings
 import pandas as pd
 import numpy as np
 import scimap
+from tqdm.notebook import tqdm
 
 from . import exceptions
 
@@ -38,7 +39,7 @@ def get_full_qrange(peaks):
     return (min(mins), max(maxs))
 
 
-def fit_peaks(qs, Is, peaks=('003',))->pd.DataFrame:
+def fit_peaks(qs, Is, peaks=('003',), method="gaussian")->pd.DataFrame:
     """Fit a specific reflection to all the patterns in *qs*, *Is*.
     
     Peaks can also be overlapping adjacent peaks, but this will not
@@ -63,13 +64,15 @@ def fit_peaks(qs, Is, peaks=('003',))->pd.DataFrame:
     if len(peaks) > 1:
         raise NotImplementedError("Overlapping peaks not yet implemented.")
     qmin, qmax = get_full_qrange(peaks)
-    is_in_bounds = np.logical_and(np.greater_equal(qs, qmin), np.less_equal(qs, qmax))
+    # is_in_bounds = np.logical_and(np.greater_equal(qs, qmin), np.less_equal(qs, qmax))
     # Go through and do the fitting
-    peak_group = scimap.peakfitting.Peak()
     peaks = pd.DataFrame()
-    for q, I, ispeak in zip(qs, Is, is_in_bounds):
-        peak_group = scimap.peakfitting.Peak()
-        peak_group.fit(q[ispeak], I[ispeak])
+    for q, I in tqdm(zip(qs, Is), desc="Fitting", total=qs.shape[0]):
+        q = np.asarray(q)
+        I = np.asarray(I)
+        is_peak = np.logical_and(np.greater_equal(q, qmin), np.less_equal(q, qmax))
+        peak_group = scimap.peakfitting.Peak(method=method)
+        peak_group.fit(q[is_peak], I[is_peak])
         # Append the fitted row to the pandas dataframe
         predicted = peak_group.predict(q)
         area = peak_group.area()

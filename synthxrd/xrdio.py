@@ -17,6 +17,7 @@ import h5py
 import PIL
 from xml.etree import ElementTree
 from dioptas.model.util.BackgroundExtraction import extract_background
+import pandas_ods_reader
 
 from .xrdtools import DEFAULT_HDF_FILENAME
 from .xrdutils import rotate_2d_image, twotheta_to_q
@@ -411,7 +412,7 @@ def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin
     integrated_dir : Path
       Location of the 1D Dioptas integrated .xy files.
     metadata_file : Path
-      Location of the excel file holding the sample names.
+      Location of the excel file holding the sample descriptions.
     qmin : float
       The minimum q value to export.
     
@@ -423,13 +424,13 @@ def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin
     
     """
     df = pd.DataFrame()
-    for xyfile in integrated_dir.iterdir():
+    for xyfile in tqdm(list(integrated_dir.iterdir())):
         if xyfile.suffix == '.xy':
-            metadata_file = tiff_dir/f"{xyfile.stem}.tif.metadata"
+            tiff_metadata_file = tiff_dir/f"{xyfile.stem}.tif.metadata"
             this_row = load_1d_dioptas(xyfile, qmin=qmin)
-            this_row['metadata_file'] = metadata_file
+            this_row['metadata_file'] = tiff_metadata_file
             # Parse metadata
-            metadata = parse_metadata_17bm(metadata_file)
+            metadata = parse_metadata_17bm(tiff_metadata_file)
             this_row['sample_name'] = metadata['sample_name']
             this_row['sample_position'] = int(metadata['sample_position'])
             this_row['chemical_formula'] = metadata['chemical_formula']
@@ -438,6 +439,12 @@ def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin
             is_calibrant = this_row['sample_position'] == 0
             if not is_calibrant:
                 df = df.append(this_row, ignore_index=True)
+    df['sample_name'] = df['sample_name'].astype(str)
+    # Combine this dataframe with the sample descriptions
+    if metadata_file is not None:
+        metadf = pandas_ods_reader.read_ods(metadata_file, sheet=0)
+        metadf['sample_name'] = metadf['sample_name'].astype(str)
+        df = df.merge(metadf, on="sample_name", how="left")
     return df
 
 

@@ -90,10 +90,10 @@ def export_xye(filepath, Is, qs=None, twotheta=None, Es=None):
 
 # def import_metadata(flist, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
 #     """Import the recorded temperature data, etc. from the .dat files.
-    
+#     
 #     Resulting pandas dataframe is saved an HDF5 file and can be
 #     retrieved with the ``load_metadata`` function..
-    
+#     
 #     """
 #     all_dfs = []
 #     for fpath in tqdm(flist, desc='Loading metadata'):
