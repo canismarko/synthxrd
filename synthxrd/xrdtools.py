@@ -27,7 +27,6 @@ import matplotlib as mpl
 import xanespy as xp
 import PIL
 from xml.etree import ElementTree
-from dioptas.model.util.BackgroundExtraction import extract_background
 
 
 from . import exceptions

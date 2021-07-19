@@ -16,7 +16,6 @@ from tqdm.notebook import tqdm
 import h5py
 import PIL
 from xml.etree import ElementTree
-from dioptas.model.util.BackgroundExtraction import extract_background
 import pandas_ods_reader
 
 from .xrdtools import DEFAULT_HDF_FILENAME
@@ -563,6 +562,7 @@ class XRDImporter(IOBase):
     def import_2d_xrd(self, flist: Sequence, hdf_groupname,
                       method='integrator', mask=None, threshold=None,
                       overwrite=False):
+        from dioptas.model.util.BackgroundExtraction import extract_background
         results = []
         ai = load_integrator(poni_file=self.poni_file)
         do_integration = partial(self.integrate_data, integrator=ai,
