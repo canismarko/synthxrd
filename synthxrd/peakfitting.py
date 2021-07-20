@@ -12,6 +12,7 @@ from . import exceptions
 peak_qranges = {
     '003': (1.0, 1.6),
     '104': (2.9, 3.2),
+    'LaB6-210': (3.325, 3.425),
 }
 
 
@@ -67,7 +68,7 @@ def fit_peaks(qs, Is, peaks=('003',), method="gaussian")->pd.DataFrame:
     # is_in_bounds = np.logical_and(np.greater_equal(qs, qmin), np.less_equal(qs, qmax))
     # Go through and do the fitting
     peaks = pd.DataFrame()
-    for q, I in tqdm(zip(qs, Is), desc="Fitting", total=qs.shape[0]):
+    for q, I, idx in tqdm(zip(qs, Is, qs.index), desc="Fitting", total=qs.shape[0]):
         q = np.asarray(q)
         I = np.asarray(I)
         is_peak = np.logical_and(np.greater_equal(q, qmin), np.less_equal(q, qmax))
@@ -76,13 +77,14 @@ def fit_peaks(qs, Is, peaks=('003',), method="gaussian")->pd.DataFrame:
         # Append the fitted row to the pandas dataframe
         predicted = peak_group.predict(q)
         area = peak_group.area()
-        peaks = peaks.append(other={
+        new_row = pd.DataFrame({
             'center_q': peak_group.center(),
             'fwhm': peak_group.fwhm(),
             'area': area,
             'breadth': area / np.max(predicted),
             'peak': peak_group,
-        }, ignore_index=True)
+        }, index=[idx])
+        peaks = peaks.append(other=new_row)
     # Add some additional columns to the dataframe
     peaks['center_d'] = 2 * np.pi / peaks.center_q
     return peaks

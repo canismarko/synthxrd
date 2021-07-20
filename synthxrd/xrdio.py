@@ -31,8 +31,6 @@ DEFAULT_GSAS_PATH = "~/miniconda3/envs/xrd/GSASII"
 
 
 def load_mask(fp):
-    if fp is None:
-        fp = DEFAULT_MASK
     mask = PIL.Image.open(fp)
     mask = np.asarray(mask)
     return mask
@@ -47,7 +45,8 @@ def import_refinements_gsas2_csv(refinement_csv, hdf_groupname, hdf_filename=DEF
 def import_refinements_gsas2(refinement_gpx, hdf_groupname,
                              hdf_filename=DEFAULT_HDF_FILENAME, gsas_path=DEFAULT_GSAS_PATH):
     # Try and import
-    try: gsas
+    try:
+        gsas
     except NameError:
         sys.path.append(str(Path(gsas_path).expanduser()))
         import GSASIIscriptable as gsas
@@ -215,6 +214,24 @@ def load_xrd(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME, background_subtra
         else:
             Is = fp[os.path.join(hdf_groupname, 'integrated_intensity')]
         yield qs, Is
+
+
+@contextmanager
+def load_xrd_2D(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
+    """Load area XRD data previously imported by ``import_xrd``.
+    
+    This functions as a context manager, and yields HDF5
+    datasets. Upon exiting the context, the HDF5 file is closed.
+    
+    Returns
+    =======
+    frames
+      Open HDF5 dataset with diffraction intensities
+    
+    """
+    with h5py.File(hdf_filename, mode='r') as fp:
+        frames = fp["/".join([hdf_groupname, "intensity_frames"])]
+        yield frames
 
 
 class IOBase():
@@ -401,7 +418,7 @@ def load_1d_dioptas(file_name: Path, qmin: float=0):
     return pattern
 
 
-def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin: float=0):
+def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin: float=0, include_calibrant=False):
     """Load the molten salt data sent to 17-BM for XRD analysis.
     
     Parameters
@@ -414,6 +431,8 @@ def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin
       Location of the excel file holding the sample descriptions.
     qmin : float
       The minimum q value to export.
+    include_calibrant : bool
+      If true, include the LaB6 calibration samples.
     
     Returns
     =======
@@ -423,7 +442,7 @@ def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin
     
     """
     df = pd.DataFrame()
-    for xyfile in tqdm(list(integrated_dir.iterdir())):
+    for xyfile in tqdm(list(integrated_dir.iterdir()), desc="Importing"):
         if xyfile.suffix == '.xy':
             tiff_metadata_file = tiff_dir/f"{xyfile.stem}.tif.metadata"
             this_row = load_1d_dioptas(xyfile, qmin=qmin)
@@ -432,11 +451,12 @@ def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin
             metadata = parse_metadata_17bm(tiff_metadata_file)
             this_row['sample_name'] = metadata['sample_name']
             this_row['sample_position'] = int(metadata['sample_position'])
+            this_row['barcode'] = metadata['barcode']
             this_row['chemical_formula'] = metadata['chemical_formula']
             this_row['chemical_name'] = metadata['chemical_name']
             this_row['detector_distance'] = round(float(metadata['Distance']))
             is_calibrant = this_row['sample_position'] == 0
-            if not is_calibrant:
+            if not is_calibrant or include_calibrant:
                 df = df.append(this_row, ignore_index=True)
     df['sample_name'] = df['sample_name'].astype(str)
     # Combine this dataframe with the sample descriptions
@@ -568,7 +588,6 @@ class XRDImporter(IOBase):
         do_integration = partial(self.integrate_data, integrator=ai,
                                  method=method, mask=mask,
                                  threshold=threshold)
-        data_list = []
         qs, Is, Is_subtracted = [], [], []
         # Check that target dataset doesn't already exist
         with h5py.File(self.hdf_filename, mode='a') as fp:
@@ -578,6 +597,7 @@ class XRDImporter(IOBase):
                 else:
                     raise RuntimeError("hdf group %s already exists in file %s" % (hdf_groupname, self.hdf_filename))
         # Integrate the data
+        frames = []
         for fpath in tqdm(flist, desc=hdf_groupname):
             try:
                 frame = load_data(fpath)
@@ -587,6 +607,7 @@ class XRDImporter(IOBase):
                 new_q = qs[0]
                 new_I = np.zeros_like(Is[0])
             else:
+                frames.append(frame)
                 new_q, new_I = do_integration(frame)
             qs.append(new_q)
             Is.append(new_I)
@@ -594,6 +615,7 @@ class XRDImporter(IOBase):
             Is_subtracted.append(new_I - bg)
         # Save results to HDF5 file
         with h5py.File(self.hdf_filename, mode='a') as fp:
+            fp.create_dataset(os.path.join(hdf_groupname, 'intensity_frames'), data=frames)
             fp.create_dataset(os.path.join(hdf_groupname, 'integrated_intensity'), data=Is)
             fp.create_dataset(os.path.join(hdf_groupname, 'integrated_intensity_bg_subtracted'),
                               data=Is_subtracted)

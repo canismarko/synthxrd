@@ -49,6 +49,9 @@ class AllCifs():
     
     def __getattr__(self, name):
         return self._cifs[name]
+
+    def __get__(self, name):
+        return self._cifs[name]
     
     def __iter__(self):
         self._cif_values = iter(self._cifs.values())
@@ -63,26 +66,34 @@ class AllCifs():
 
 cifroot = Path(__file__).resolve().parent.parent / "cif_files"
 all_cifs = AllCifs(
-    LCO=CIF(name='$LiCoO_2$', path=cifroot/'LiCoO2_CollCode51182.cif'),
-    LC=CIF(name='$Li_2CO_3$', path=cifroot/'Li2CO3_CollCode66941.cif'),
-    NiO=CIF(name='NiO', path=cifroot/'NiO_ICSD_CollCode9866.cif'),
-    NiO_Vacancies=CIF(name='$Ni_{0.75}O$ (disordered, calc)', path=cifroot/'NiO_nickel_vacancies.cif'),
-    LH_HYDRATE=CIF(name=r'$LiOH\bullet H_2O$', path=cifroot/'LiOHH2O_CollCode9138.cif'),
-    LH=CIF(name=r'LiOH', path=cifroot/'LiOH_CollCode34888.cif'),
-    NMC622=CIF(name=r'NMC-622', path=cifroot/'NMC622_ICSD_CollCode159320.cif'),
-    NMC811=CIF(name=r'NMC-811', path=cifroot/'NMC811_ICSD_CollCode8362.cif'),
-    Mn2O3=CIF(name=r'$Mn_2O_3$', path=cifroot/'Mn2O3_CollCode187263.cif'),
-    Ni3O4=CIF(name=r'$Ni_{0.75}O$ (ordered, MP)', path=cifroot/'Ni3O4_mp-656887_symmetrized.cif'),
-    Co3O4=CIF(name=r'$Co_3O_4$ (spinel)', path=cifroot/'Co3O4_CollCode36256.cif'),
-    SiO4=CIF(name=r'$Li_4SiO_4$', path=cifroot/'Li4SiO4_ICSD_CollCode25759.cif'),
-    WO3=CIF(name=r'$WO_3$', path=cifroot/'WO3.cif'),
-    WO3_B=CIF(name=r'$WO_3$', path=cifroot/'WO3_CollCode32001.cif'),
+    LCO=CIF(name='$LiCoO_2$', path=cifroot / 'LiCoO2_CollCode51182.cif'),
+    LC=CIF(name='$Li_2CO_3$', path=cifroot / 'Li2CO3_CollCode66941.cif'),
+    NiO=CIF(name='NiO', path=cifroot / 'NiO_ICSD_CollCode9866.cif'),
+    NiO_Vacancies=CIF(name='$Ni_{0.75}O$ (disordered, calc)', path=cifroot / 'NiO_nickel_vacancies.cif'),
+    LH_HYDRATE=CIF(name=r'$LiOH\bullet H_2O$', path=cifroot / 'LiOHH2O_CollCode9138.cif'),
+    LH=CIF(name=r'LiOH', path=cifroot / 'LiOH_CollCode34888.cif'),
+    NMC622=CIF(name=r'NMC-622', path=cifroot / 'NMC622_ICSD_CollCode159320.cif'),
+    NMC811=CIF(name=r'NMC-811', path=cifroot / 'NMC811_ICSD_CollCode8362.cif'),
+    NiOH=CIF(name=r'β-Ni(OH)2', path=cifroot / 'NiOH_CollCode169978.cif'),
+    Mn2O3=CIF(name=r'$Mn_2O_3$', path=cifroot / 'Mn2O3_CollCode187263.cif'),
+    Ni3O4=CIF(name=r'$Ni_{0.75}O$ (ordered, MP)', path=cifroot / 'Ni3O4_mp-656887_symmetrized.cif'),
+    Co3O4=CIF(name=r'$Co_3O_4$ (spinel)', path=cifroot / 'Co3O4_CollCode36256.cif'),
+    SiO4=CIF(name=r'$Li_4SiO_4$', path=cifroot / 'Li4SiO4_ICSD_CollCode25759.cif'),
+    WO3=CIF(name=r'$WO_3$', path=cifroot / 'WO3.cif'),
+    WO3_B=CIF(name=r'$WO_3$', path=cifroot / 'WO3_CollCode32001.cif'),
+    CoCO3=CIF(name=r'$CoCO_3$', path=cifroot / "CoOH2_ICSD_CollCode257275.cif"),
+    CoOH=CIF(name=r'$Co(OH)_2$', path=cifroot / "CoCO3_ICSD_CollCode61066.cif"),
     # Lead-acid structures
-    Pb=CIF(name=r"Pb", path=cifroot/"Pb_ICSD_CollCode96501.cif"),
-    PbSO4=CIF(name=r"$PbSO_4$", path=cifroot/"PbSO4_ICSD_CollCode154273.cif"),
-    PbO2_alpha=CIF(name=r"$\alpha-PbO_2$", path=cifroot/"PbO2_alpha_ICSD_CollCode415268.cif"),
-    PbO2_beta=CIF(name=r"$\beta-PbO_2$", path=cifroot/"PbO2_beta_ICSD_CollCode8491.cif"),
-    PbO=CIF(name=r"PbO", path=cifroot/"PbO_ICSD_CollCode15466.cif"),
+    Pb=CIF(name=r"Pb", path=cifroot / "Pb_ICSD_CollCode96501.cif"),
+    PbSO4=CIF(name=r"$PbSO_4$", path=cifroot / "PbSO4_ICSD_CollCode154273.cif"),
+    PbO2_alpha=CIF(name=r"$\alpha-PbO_2$", path=cifroot / "PbO2_alpha_ICSD_CollCode415268.cif"),
+    PbO2_beta=CIF(name=r"$\beta-PbO_2$", path=cifroot / "PbO2_beta_ICSD_CollCode8491.cif"),
+    PbO=CIF(name=r"PbO", path=cifroot / "PbO_ICSD_CollCode15466.cif"),
+    # LLZO solid electrolytes
+    LLZO_c=CIF(name=r"LLZO_c", path=cifroot / "LLZO-c_ICSD_CollCode238685.cif"),
+    LLZO_t=CIF(name=r"LLZO-t", path=cifroot / "LLZO-t_ICSD_CollCode238686.cif"),
+    # Inactive phases
+    BN_h = CIF(name=r"BN_h", path=cifroot / "hBN_CollCode240996.cif"),
 )
 
 

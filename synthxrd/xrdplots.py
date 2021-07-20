@@ -11,9 +11,25 @@ from scipy import stats
 
 from .cif import plot_cif
 from .xrdutils import twotheta_to_q, q_to_twotheta, convert_q_domain
+from .peakfitting import peak_qranges
 
 
 log = logging.getLogger(__name__)
+
+
+def add_hkl_label(ax, hkl, x, y, qmin=None, qmax=None):
+    # Limit the q-range for this reflection
+    if qmin is None and qmax is None:
+        qmin, qmax = peak_qranges[hkl]
+    in_qrange = np.logical_and(x < qmax, x > qmin)
+    _x = x[in_qrange]
+    _y = y[in_qrange]
+    # Find x, y position of peak
+    i_max = np.argmax(_y)
+    x_max = _x[i_max]
+    y_max = _y[i_max]
+    # Add the label
+    ax.text(x_max, y_max * 1.015, s=hkl, rotation=90, va="bottom", ha="center")
 
 
 def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax=None,
@@ -207,8 +223,8 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
             pass
         ax.set_ylim(times.min(), times.max())
     # Plot requested CIF files
-    for (label, cifpath), cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
-        plot_cif(str(cifpath), ax=cifax, wavelength=wavelength, color=f"C{idx}", label=label)
+    for ciff, cifax, idx in zip(ciffiles, cifaxs, range(n_ciffs)):
+        plot_cif(ciffile=ciff, ax=cifax, wavelength=wavelength, color=f"C{idx}", label=ciff.name)        
     # Format the CIF axes
     for ax in cifaxs:
         ax.set_yticks([])
@@ -247,7 +263,7 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
       Array of integrated diffraction intensities
     metadata
       iterable with scan metadata as a dictionary.
-    figsize 
+    figsize
       figure size for plotting
     ciffiles
       iterable of paths to .CIF files that will be plotted below the
