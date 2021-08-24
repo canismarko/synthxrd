@@ -2,6 +2,7 @@ import warnings
 
 import pandas as pd
 import numpy as np
+from numpy.typing import ArrayLike
 import scimap
 from tqdm.notebook import tqdm
 
@@ -40,7 +41,7 @@ def get_full_qrange(peaks):
     return (min(mins), max(maxs))
 
 
-def fit_peaks(qs, Is, peaks=('003',), method="gaussian")->pd.DataFrame:
+def fit_peaks(qs: ArrayLike, tths: ArrayLike, Is: ArrayLike, dataframe_index, peaks=('003',), method="gaussian") -> pd.DataFrame:
     """Fit a specific reflection to all the patterns in *qs*, *Is*.
     
     Peaks can also be overlapping adjacent peaks, but this will not
@@ -50,8 +51,13 @@ def fit_peaks(qs, Is, peaks=('003',), method="gaussian")->pd.DataFrame:
     ==========
     qs :
       2D array of scattering lengths in shape (scan, scattering_pos)
+    tths
+      2D array of scattering angles in shape (scan, scattering_pos)
     Is :
       2D array of scattering intensities in shape (scan, scattering_pos)
+    dataframe_index :
+      The index of the metadata dataframe. This will be used as the
+      index on the output dataframe.
     peaks
       An iterable of hkl indices to fit. Must be defined in ``peak_qranges``.
     
@@ -60,15 +66,14 @@ def fit_peaks(qs, Is, peaks=('003',), method="gaussian")->pd.DataFrame:
     df : pd.DataFrame
       The fitted parameters and peak objects arranged in a pandas
       DataFrame.
-    
+
     """
     if len(peaks) > 1:
         raise NotImplementedError("Overlapping peaks not yet implemented.")
     qmin, qmax = get_full_qrange(peaks)
-    # is_in_bounds = np.logical_and(np.greater_equal(qs, qmin), np.less_equal(qs, qmax))
     # Go through and do the fitting
     peaks = pd.DataFrame()
-    for q, I, idx in tqdm(zip(qs, Is, qs.index), desc="Fitting", total=qs.shape[0]):
+    for q, tth, I, idx in tqdm(zip(qs, tths, Is, dataframe_index), desc="Fitting", total=qs.shape[0]):
         q = np.asarray(q)
         I = np.asarray(I)
         is_peak = np.logical_and(np.greater_equal(q, qmin), np.less_equal(q, qmax))
@@ -77,14 +82,29 @@ def fit_peaks(qs, Is, peaks=('003',), method="gaussian")->pd.DataFrame:
         # Append the fitted row to the pandas dataframe
         predicted = peak_group.predict(q)
         area = peak_group.area()
-        new_row = pd.DataFrame({
+        payload = {
             'center_q': peak_group.center(),
             'fwhm': peak_group.fwhm(),
             'area': area,
             'breadth': area / np.max(predicted),
             'peak': peak_group,
-        }, index=[idx])
-        peaks = peaks.append(other=new_row)
+        }
+        # Fitting in the 2θ domain
+        if tth is not None:
+            peak_group = scimap.peakfitting.Peak(method=method)
+            peak_group.fit(tth[is_peak], I[is_peak])
+            # Append the fitted row to the pandas dataframe
+            predicted = peak_group.predict(tth)
+            area = peak_group.area()
+            payload.update({
+                'center_tth': peak_group.center(),
+                'fwhm_tth': peak_group.fwhm(),
+                'area_tth': area,
+                'breadth_tth': area / np.max(predicted),
+                'peak_tth': peak_group,
+            })
+        # Add to the running dataframe
+        peaks = peaks.append(other=pd.DataFrame(payload, index=[idx]))
     # Add some additional columns to the dataframe
     peaks['center_d'] = 2 * np.pi / peaks.center_q
     return peaks

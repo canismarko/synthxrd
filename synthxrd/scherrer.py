@@ -15,7 +15,7 @@ class ScherrerModel():
     shape_factor: float = 1.
     wavelength: float = 0.45237
         
-    def size(self, peak_fwhm: float, peak_twotheta: float)-> float:
+    def size(self, peak_fwhm: float, peak_twotheta: float) -> float:
         """Calculate the particle size by Sherrer analysis.
         
         Parameters
