@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from numpy.typing import ArrayLike
 import scimap
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 from . import exceptions
 
@@ -59,21 +59,28 @@ def fit_peaks(qs: ArrayLike, tths: ArrayLike, Is: ArrayLike, dataframe_index, pe
       The index of the metadata dataframe. This will be used as the
       index on the output dataframe.
     peaks
-      An iterable of hkl indices to fit. Must be defined in ``peak_qranges``.
+      Ranges for the peaks being fit. Can be defined by name in
+      ``peak_qranges``, or else a sequence of (qmin, qmax) tuples for
+      each peak.
     
     Returns
     =======
     df : pd.DataFrame
       The fitted parameters and peak objects arranged in a pandas
       DataFrame.
-
+    
     """
     if len(peaks) > 1:
         raise NotImplementedError("Overlapping peaks not yet implemented.")
     qmin, qmax = get_full_qrange(peaks)
     # Go through and do the fitting
     peaks = pd.DataFrame()
-    for q, tth, I, idx in tqdm(zip(qs, tths, Is, dataframe_index), desc="Fitting", total=qs.shape[0]):
+    qs = np.asarray(qs)
+    data_bundle = zip(qs, tths, Is, dataframe_index)
+    if qs.shape[0] > 1:
+        # Wrap in a progress bar
+        data_bundle = tqdm(data_bundle, desc="Fitting", total=qs.shape[0])
+    for q, tth, I, idx in data_bundle:
         q = np.asarray(q)
         I = np.asarray(I)
         is_peak = np.logical_and(np.greater_equal(q, qmin), np.less_equal(q, qmax))
@@ -104,6 +111,7 @@ def fit_peaks(qs: ArrayLike, tths: ArrayLike, Is: ArrayLike, dataframe_index, pe
                 'peak_tth': peak_group,
             })
         # Add to the running dataframe
+        pd.DataFrame(payload, index=[idx])
         peaks = peaks.append(other=pd.DataFrame(payload, index=[idx]))
     # Add some additional columns to the dataframe
     peaks['center_d'] = 2 * np.pi / peaks.center_q

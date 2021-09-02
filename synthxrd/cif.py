@@ -3,7 +3,9 @@ import re
 from pathlib import Path
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Sequence
 
+import numpy as np
 import matplotlib.pyplot as plt
 import xrayutilities as xru
 
@@ -13,11 +15,76 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
-class CIF():
-    name: str
-    path: Path
+class ReferencePattern():
+    def __init__(self, intensity: Sequence, q: Sequence=None, tth: Sequence=None, wavelength=None, name=None):
+        """Create a defined reference pattern from individual reflections. 
+
+        Parameters
+        ==========
+        intensities
+          A listing of the relative intensities of each reflection.
+        qs
+          A listing of the reciprocal scattering lengths for each reflection.
+        tths
+          A listing of the two-theta values for each reflections.
+
+        """
+        if q is None and tth is None:
+            raise AttributeError("Either *q* or *tth* is required")
+        self.intensity = np.asarray(intensity)
+        q = np.asarray(q) if q is not None else q
+        tth = np.asarray(tth) if tth is not None else tth
+        if q is None:
+            if wavelength is None:
+                raise AttributeError(
+                    "*wavelength* is required when defining pattern in two-theta.")
+            q = twotheta_to_q(tth, wavelength=wavelength)
+        self.q = q
+        self.name = name
+        
+    def plot(self, ax=None, I0=100, color='C0',
+             label=None, domain='q', wavelength=None, alpha=0.5,
+             energy=None, *args, **kwargs):
+        """Plot ticks for a CIF file."""
+        if energy is not None:
+            wavelength = energy_to_wavelength(energy)
+        if wavelength is None and domain == "tth":
+            raise AttributeError(
+                    "*wavelength* is required when plotting CIF in two-theta.")
+        if ax is None:
+            ax = plt.gca()
+        # Decide if we're doing q or two-theta
+        x = q_to_twotheta(self.q, wavelength=wavelength) if domain == "tth" else self.q
+        # Do the plotting
+        label_added = False
+        for x_, I_ in zip(x, self.intensity):
+            # Plot reflections
+            if not label_added:
+                _label = self.name
+                label_added = True
+            else:
+                _label = None
+            line = ax.plot([x_, x_], [0, I_], color=color,
+                           alpha=alpha, label=_label, *args, **kwargs)
+        return
+        
+
+
+class CIF(ReferencePattern):
+    _name: str
+    _path: Path
     icsd_re = re.compile("[a-zA-Z0-9_()]+_CollCode([0-9]+).cif")
-    
+        
+    def __init__(self, name, path):
+        self._name = name
+        self._path = path
+
+    def __eq__(self, other):
+        return (self.name == other.name) and (self.path == other.path)
+
+    def __hash__(self):
+        return hash((self.name, self.path))
+
     @property
     def icsd_code(self):
         match = self.icsd_re.match(self.path.name)
@@ -25,6 +92,66 @@ class CIF():
             return match.group(1)
         else:
             return None
+
+    @lru_cache()
+    def powder_pattern(self, I0=100, wavelength=None):
+        try:
+            xu_cif = xru.materials.CIFFile(self.path)
+            xu_crystal = xru.materials.Crystal(name="b-CsCl", lat=xu_cif.SGLattice())
+        except Exception:
+            log.error("Failed to load cif: %s", self.path)
+            if hasattr(xu_cif, 'close'):
+                xu_cif.close()
+            raise
+        powder = xru.simpack.smaterials.Powder(xu_crystal, 1)
+        opts = {}
+        if wavelength is not None:
+            opts['wl'] = wavelength
+        pdiff = xru.simpack.PowderDiffraction(powder, tt_cutoff=80, **opts)
+        return pdiff
+        
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def path(self):
+        return self._path
+
+    def plot(self, ax=None, I0=100, color='C0',
+             label=None, domain='q', wavelength=None, alpha=0.5,
+             energy=None, *args, **kwargs):
+        """Plot ticks for a CIF file."""
+        if energy is not None:
+            wavelength = energy_to_wavelength(energy)
+        if wavelength is None:
+            if domain not in ['q', 'd']:
+                raise AttributeError(
+                    "*wavelength* is required when plotting CIF in two-theta.")
+            else:
+                wavelength = 1.
+        powdermodel = self.powder_pattern(I0, wavelength=wavelength)
+        if ax is None:
+            ax = plt.gca()
+        # Do the plotting
+        label_added = False
+        for idx, hkl in enumerate(powdermodel.data):
+            data = powdermodel.data[hkl]
+            ang = data['ang']
+            # Decide if we're doing q or two-theta
+            q = twotheta_to_q(2 * ang, wavelength=wavelength)
+            x = convert_q_domain(q, domain=domain, wavelength=wavelength)
+            # Plot reflections
+            r = data['r']
+            if r > 0.01:
+                if not label_added:
+                    _label = label if label is not None else f"{self.name} CIF"
+                    label_added = True
+                else:
+                    _label = None
+                line = ax.plot([x, x], [0, r * I0], color=color,
+                               alpha=alpha, label=_label, *args, **kwargs)
+        return line[0]
 
 
 class AllCifs():
@@ -74,6 +201,7 @@ all_cifs = AllCifs(
     LH=CIF(name=r'LiOH', path=cifroot / 'LiOH_CollCode34888.cif'),
     NMC622=CIF(name=r'NMC-622', path=cifroot / 'NMC622_ICSD_CollCode159320.cif'),
     NMC811=CIF(name=r'NMC-811', path=cifroot / 'NMC811_ICSD_CollCode8362.cif'),
+    NiOOH=CIF(name="NiOOH", path=cifroot/"NiOOH_beta_CollCode165961.cif"),
     NiOH=CIF(name=r'β-Ni(OH)2', path=cifroot / 'NiOH_CollCode169978.cif'),
     MnCO3=CIF(name=r'$MnCO_3$', path=cifroot / 'MnCO3_ICSD_CollCode8433.cif'),
     NiCO3=CIF(name=r'$NiCO_3$', path=cifroot / 'NiCO3_ICSD_CollCode61067.cif'),
@@ -85,7 +213,7 @@ all_cifs = AllCifs(
     WO3=CIF(name=r'$WO_3$', path=cifroot / 'WO3.cif'),
     WO3_B=CIF(name=r'$WO_3$', path=cifroot / 'WO3_CollCode32001.cif'),
     CoOH=CIF(name=r'$CoCO_3$', path=cifroot / "CoOH2_ICSD_CollCode257275.cif"),
-    CoCO3=CIF(name=r'$Co(OH)_2$', path=cifroot / "CoCO3_ICSD_CollCode61066.cif"),
+    CoCO3=CIF(name=r'$CoCO_3$', path=cifroot / "CoCO3_ICSD_CollCode61066.cif"),
     # Lead-acid structures
     Pb=CIF(name=r"Pb", path=cifroot / "Pb_ICSD_CollCode96501.cif"),
     PbSO4=CIF(name=r"$PbSO_4$", path=cifroot / "PbSO4_ICSD_CollCode154273.cif"),
@@ -100,52 +228,6 @@ all_cifs = AllCifs(
 )
 
 
-@lru_cache()
-def cif_to_powder(ciffile, I0=100, wavelength=None):
-    try:
-        xu_cif = xru.materials.CIFFile(ciffile)
-        xu_crystal = xru.materials.Crystal(name="b-CsCl", lat=xu_cif.SGLattice())
-    except:
-        log.error("Failed to load cif: %s", ciffile)
-        if hasattr(xu_cif, 'close'):
-            xu_cif.close()
-        raise
-    powder = xru.simpack.smaterials.Powder(xu_crystal, 1)
-    opts = {}
-    if wavelength is not None:
-        opts['wl'] = wavelength
-    pdiff = xru.simpack.PowderDiffraction(powder, tt_cutoff=80, **opts)
-    return pdiff
-
-
-def plot_cif(ciffile: CIF, ax=None, I0=100, color='C0', label=None, domain='q',
-             wavelength=None, alpha=0.5, energy=None, *args, **kwargs):
-    """Plot ticks for a CIF file."""
-    if energy is not None:
-        wavelength = energy_to_wavelength(energy)
-    if wavelength is None:
-        if domain not in ['q', 'd']:
-            raise AttributeError("*wavelength* is required when plotting CIF in two-theta.")
-        else:
-            wavelength = 1.
-    powdermodel = cif_to_powder(ciffile.path, I0, wavelength=wavelength)
-    if ax is None:
-        ax = plt.gca()
-    # Do the plotting
-    label_added = False
-    for idx, hkl in enumerate(powdermodel.data):
-        data = powdermodel.data[hkl]
-        ang = data['ang']
-        # Decide if we're doing q or two-theta
-        q = twotheta_to_q(2*ang, wavelength=wavelength)
-        x = convert_q_domain(q, domain=domain, wavelength=wavelength)
-        # Plot reflections
-        r = data['r']
-        if r > 0.01:
-            if not label_added:
-                _label = label if label is not None else f"{ciffile.name} CIF"
-                label_added = True
-            else:
-                _label = None
-            line = ax.plot([x, x], [0, r*I0], color=color, alpha=alpha, label=_label, *args, **kwargs)
-    return line[0]
+def plot_cif(ciffile, *args, **kwargs):
+    """Legacy function for calling CIF().plot(*args, **kwargs)."""
+    return ciffile.plot(*args, **kwargs)
