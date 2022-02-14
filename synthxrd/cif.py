@@ -42,8 +42,8 @@ class ReferencePattern():
         self.q = q
         self.name = name
         
-    def plot(self, ax=None, I0=100, color='C0',
-             label=None, domain='q', wavelength=None, alpha=0.5,
+    def plot(self, ax=None, I0=100, color='C0', voffset=0,
+             domain='q', wavelength=None, alpha=0.5,
              energy=None, *args, **kwargs):
         """Plot ticks for a CIF file."""
         if energy is not None:
@@ -64,10 +64,9 @@ class ReferencePattern():
                 label_added = True
             else:
                 _label = None
-            line = ax.plot([x_, x_], [0, I_], color=color,
-                           alpha=alpha, label=_label, *args, **kwargs)
+            ax.plot([x_, x_], [voffset, I_+voffset], color=color,
+                    alpha=alpha, label=_label, *args, **kwargs)
         return
-        
 
 
 class CIF(ReferencePattern):
@@ -118,7 +117,7 @@ class CIF(ReferencePattern):
     def path(self):
         return self._path
 
-    def plot(self, ax=None, I0=100, color='C0',
+    def plot(self, ax=None, voffset=0, I0=100, color='C0',
              label=None, domain='q', wavelength=None, alpha=0.5,
              energy=None, *args, **kwargs):
         """Plot ticks for a CIF file."""
@@ -149,7 +148,7 @@ class CIF(ReferencePattern):
                     label_added = True
                 else:
                     _label = None
-                line = ax.plot([x, x], [0, r * I0], color=color,
+                line = ax.plot([x, x], [voffset, voffset + r * I0], color=color,
                                alpha=alpha, label=_label, *args, **kwargs)
         return line[0]
 
@@ -179,6 +178,9 @@ class AllCifs():
 
     def __get__(self, name):
         return self._cifs[name]
+
+    def keys(self):
+        return self._cifs.keys()
     
     def __iter__(self):
         self._cif_values = iter(self._cifs.values())
@@ -193,6 +195,21 @@ class AllCifs():
 
 cifroot = Path(__file__).resolve().parent.parent / "cif_files"
 all_cifs = AllCifs(
+    # Spinels
+    Mn2O3=CIF(name=r'$Mn_2O_3$', path=cifroot / 'Mn2O3_CollCode187263.cif'),
+    Co3O4=CIF(name=r'$Co_3O_4$ (Fd-3mS spinel)', path=cifroot / 'Co3O4_CollCode36256.cif'),
+    Co3O4_B=CIF(name=r"$Co_3O_4$ (F-43m)", path=cifroot / ''),
+    Ni3O4=CIF(name=r'$Ni_{0.75}O$ (ordered, MP)', path=cifroot / 'Ni3O4_mp-656887_symmetrized.cif'),
+    LiMn2O4=CIF(name=r'$LiMn_2O_4$', path=cifroot / 'LiMn2O4_CollCode11273.cif'),
+    LiMn2O4_B=CIF(name=r'$LiMn_2O_4$', path=cifroot / 'LiMn2O4_CollCode50415.cif'),
+    Mn3O4=CIF(name=r'$Mn_3O_4$', path=cifroot / 'Mn3O4_CollCode68174.cif'),
+    Mn3O4_B=CIF(name=r'$Mn_3O_4 (spinel)$', path=cifroot / 'Mn3O4_CollCode50415.cif'), # Hand modified spinel
+    Mn2O4_B=CIF(name=r'$Mn_2O_4 (vacancies)$', path=cifroot / 'Mn2O4_CollCode50415.cif'), # Hand modified spinel
+    Li2MnO3=CIF(name=r'$Li_2MnO_3$', path=cifroot / 'Li2MnO3_CollCode83848.cif'),
+    Li2Mn2O4=CIF(name=r'$Li_2Mn_2O_4$ (tet)', path=cifroot / 'Li2Mn2O4_CollCode231010.cif'),
+    NiMn2O4=CIF(name=r"$NiMn_2O_4$", path=cifroot / 'NiMn2O4_CollCode185294.cif'),
+    Li2NiMn2O4=CIF(name=r"$Li_2Ni_{0.5}Mn_{1.5}O_4$", path=cifroot / "Li2NiMn2O4_CollCode884.cif"),
+    # Other LIB phases
     LCO=CIF(name='$LiCoO_2$', path=cifroot / 'LiCoO2_CollCode51182.cif'),
     LC=CIF(name='$Li_2CO_3$', path=cifroot / 'Li2CO3_CollCode66941.cif'),
     NiO=CIF(name='NiO', path=cifroot / 'NiO_ICSD_CollCode9866.cif'),
@@ -202,17 +219,16 @@ all_cifs = AllCifs(
     NMC622=CIF(name=r'NMC-622', path=cifroot / 'NMC622_ICSD_CollCode159320.cif'),
     NMC811=CIF(name=r'NMC-811', path=cifroot / 'NMC811_ICSD_CollCode8362.cif'),
     NiOOH=CIF(name="NiOOH", path=cifroot/"NiOOH_beta_CollCode165961.cif"),
-    NiOH=CIF(name=r'β-Ni(OH)2', path=cifroot / 'NiOH_CollCode169978.cif'),
+    NiOH=CIF(name=r'$\mathrm{Ni(OH)_2}$', path=cifroot / 'NiOH_CollCode169978.cif'),
     MnCO3=CIF(name=r'$MnCO_3$', path=cifroot / 'MnCO3_ICSD_CollCode8433.cif'),
     NiCO3=CIF(name=r'$NiCO_3$', path=cifroot / 'NiCO3_ICSD_CollCode61067.cif'),
-    Mn2O3=CIF(name=r'$Mn_2O_3$', path=cifroot / 'Mn2O3_CollCode187263.cif'),
-    calcite=CIF(name=r'$CaCO_3$', path=cifroot / "calcite_ICSD_CollCode18164.cif"),
-    Ni3O4=CIF(name=r'$Ni_{0.75}O$ (ordered, MP)', path=cifroot / 'Ni3O4_mp-656887_symmetrized.cif'),
-    Co3O4=CIF(name=r'$Co_3O_4$ (spinel)', path=cifroot / 'Co3O4_CollCode36256.cif'),
+    calcite=CIF(name=r'$CaCO_3$ (clct.)', path=cifroot / "CaCO3_calcite_ICSD_CollCode18164.cif"),
+    aragonite=CIF(name=r'$CaCO_3$ (arag.)', path=cifroot / "CaCO3_aragonite_ICSD_CollCode157992.cif"),
+    vaterite=CIF(name=r'$CaCO_3$ (vater.)', path=cifroot / "CaCO3_vaterite_ICSD_CollCode18127.cif"),
     SiO4=CIF(name=r'$Li_4SiO_4$', path=cifroot / 'Li4SiO4_ICSD_CollCode25759.cif'),
     WO3=CIF(name=r'$WO_3$', path=cifroot / 'WO3.cif'),
     WO3_B=CIF(name=r'$WO_3$', path=cifroot / 'WO3_CollCode32001.cif'),
-    CoOH=CIF(name=r'$CoCO_3$', path=cifroot / "CoOH2_ICSD_CollCode257275.cif"),
+    CoOH=CIF(name=r'$β-Co(OH)_2$', path=cifroot / "CoOH2_ICSD_CollCode257275.cif"),
     CoCO3=CIF(name=r'$CoCO_3$', path=cifroot / "CoCO3_ICSD_CollCode61066.cif"),
     # Lead-acid structures
     Pb=CIF(name=r"Pb", path=cifroot / "Pb_ICSD_CollCode96501.cif"),
@@ -220,6 +236,8 @@ all_cifs = AllCifs(
     PbO2_alpha=CIF(name=r"$\alpha-PbO_2$", path=cifroot / "PbO2_alpha_ICSD_CollCode415268.cif"),
     PbO2_beta=CIF(name=r"$\beta-PbO_2$", path=cifroot / "PbO2_beta_ICSD_CollCode8491.cif"),
     PbO=CIF(name=r"PbO", path=cifroot / "PbO_ICSD_CollCode15466.cif"),
+    Pb_3BS=CIF(name=r"3BS", path=cifroot / "Pb3BS_ICSD_CollCode84850.cif"),
+    Pb_4BS=CIF(name=r"4BS", path=cifroot / "Pb4BS_ICSD_CollCode87927.cif"),
     # LLZO solid electrolytes
     LLZO_c=CIF(name=r"LLZO_c", path=cifroot / "LLZO-c_ICSD_CollCode238685.cif"),
     LLZO_t=CIF(name=r"LLZO-t", path=cifroot / "LLZO-t_ICSD_CollCode238686.cif"),

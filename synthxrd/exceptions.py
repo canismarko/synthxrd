@@ -11,3 +11,7 @@ class AmbiguousKphi(RuntimeError):
 class UnknownHKL(KeyError):
     """The requested HKL value is not defined."""
     ...
+
+class FileNotReadable(ValueError):
+    """A file could not be read."""
+    ...

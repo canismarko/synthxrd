@@ -9,15 +9,15 @@ from contextlib import contextmanager
 from typing import Sequence, Mapping
 from functools import lru_cache, partial
 
-import pyFAI
 from scipy import ndimage
 import numpy as np
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 import h5py
 import PIL
 from xml.etree import ElementTree
 import pandas_ods_reader
 
+from . import exceptions
 from .xrdtools import DEFAULT_HDF_FILENAME
 from .xrdutils import rotate_2d_image, twotheta_to_q
 
@@ -415,6 +415,10 @@ def load_1d_dioptas(file_name: Path, qmin: float=0):
         pattern['q'] = pattern['q'][is_in_range]
         pattern['I'] = pattern['I'][is_in_range]
         pattern['tth'] = pattern['tth'][is_in_range]
+    # Subtract background
+    from dioptas.model.util.BackgroundExtraction import extract_background
+    pattern['background'] = extract_background(pattern['q'].values, pattern['I'].values)
+    pattern['I_sub'] = pattern['I'] - pattern['background']
     return pattern
 
 
@@ -455,6 +459,52 @@ def load_xrd_molten_salt_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin
             this_row['chemical_formula'] = metadata['chemical_formula']
             this_row['chemical_name'] = metadata['chemical_name']
             this_row['detector_distance'] = round(float(metadata['Distance']))
+            is_calibrant = this_row['sample_position'] == 0
+            if not is_calibrant or include_calibrant:
+                df = df.append(this_row, ignore_index=True)
+    df['sample_name'] = df['sample_name'].astype(str)
+    # Combine this dataframe with the sample descriptions
+    if metadata_file is not None:
+        metadf = pandas_ods_reader.read_ods(metadata_file, sheet=0)
+        metadf['sample_name'] = metadf['sample_name'].astype(str)
+        df = df.merge(metadf, on="sample_name", how="left")
+    return df
+
+
+@lru_cache()
+def load_xrd_17bm(tiff_dir, integrated_dir, metadata_file=None, qmin: float=0, include_calibrant=False):
+    """Load the molten salt data sent to 17-BM for XRD analysis.
+    
+    Parameters
+    ==========
+    tiff_dir : Path
+      Location of the tiff files that will be imported.
+    integrated_dir : Path
+      Location of the 1D Dioptas integrated .xy files.
+    metadata_file : Path
+      Location of the excel file holding the sample descriptions.
+    qmin : float
+      The minimum q value to export.
+    include_calibrant : bool
+      If true, include the LaB6 calibration samples.
+    """
+    # Prepare some data structures
+    df = pd.DataFrame()
+    for xyfile in tqdm(list(integrated_dir.iterdir()), desc="Importing"):
+        if xyfile.suffix == '.xy':
+            tiff_metadata_file = tiff_dir / f"{xyfile.stem}.tif.metadata"
+            metadata = parse_metadata_17bm(tiff_metadata_file)
+            this_row = load_1d_dioptas(xyfile, qmin=qmin)
+            this_row.update({
+                'metadata_file': tiff_metadata_file,
+                'sample_name': metadata['sample_name'],
+                'sample_position': int(metadata['sample_position']),
+                'barcode': metadata['barcode'],
+                'chemical_formula': metadata['chemical_formula'],
+                'chemical_name': metadata['chemical_name'],
+                'detector_distance': round(float(metadata['Distance'])),
+            })
+            # Parse metadata
             is_calibrant = this_row['sample_position'] == 0
             if not is_calibrant or include_calibrant:
                 df = df.append(this_row, ignore_index=True)
@@ -549,15 +599,18 @@ class XRDImporter(IOBase):
         if samples.keys() != sample_names.keys():
             summary_list = [f"{k}° ({len(v)})" for k, v in samples.items()]
             msg = ("Parameter *sample_names* does not match spec file. "
-                   "Provide a mappable with keys matching these kphi values {}".format(summary_list))
+                   "Provide a mappable with keys matching these kphi values {}"
+                   "".format(summary_list))
             raise ValueError(msg)
         # Load the data files for each import
         for kphi in samples.keys():
-            self.import_2d_xrd([self.data_dir/s.file_path for s in samples[kphi]], sample_names[kphi], overwrite=overwrite)
+            sample_files = [self.data_dir / s.file_path for s in samples[kphi]]
+            self.import_2d_xrd(sample_files, sample_names[kphi], overwrite=overwrite)
             # Process the metadata into a pandas dataframe
-            metadata = self.merge_metadata(samples[kphi], sample_name=sample_names[kphi])
-            metadata.to_hdf(self.hdf_filename, key="/".join([sample_names[kphi], 'metadata']))
-    
+            metadata = self.merge_metadata(samples[kphi],
+                                           sample_name=sample_names[kphi])
+            save_metadata(metadata, sample_names[kphi], hdf_filename=self.hdf_filename)
+   
     def merge_metadata(self, scans, sample_name):
         """Take individual metadata for scans and merge them into a single dataframe."""
         all_dfs = [s.metadata for s in scans]
@@ -606,6 +659,9 @@ class XRDImporter(IOBase):
                 log.warning("Warning, could not open file %s", fpath)
                 new_q = qs[0]
                 new_I = np.zeros_like(Is[0])
+            except ValueError as err:
+                log.error("Unable to read file: %s", fpath)
+                raise exceptions.FileNotReadable(f"{str(err)}: {fpath}")
             else:
                 frames.append(frame)
                 new_q, new_I = do_integration(frame)
@@ -782,9 +838,17 @@ class GSASExporter(IOBase):
 
 
 def load_metadata(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
-    """Load metadata previously saved to HDF5 by ``import_metadata``."""
+    """Load metadata previously saved to HDF5 by ``import_metadata`` or
+    ``save_metadata``.
+
+    """
     metadata = pd.read_hdf(hdf_filename, os.path.join(hdf_groupname, 'metadata'))
     return metadata
+
+
+def save_metadata(df, hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
+    """Save metadata to HDF5."""
+    df.to_hdf(hdf_filename, key="/".join([hdf_groupname, 'metadata']))
 
 
 def load_fitting(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
@@ -803,6 +867,7 @@ def load_refinement_params(hdf_groupname, hdf_filename=DEFAULT_HDF_FILENAME):
 
 
 def load_integrator(poni_file='images/lab6_1_S002_00000.poni'):
+    import pyFAI
     # ai = pyFAI.load('lab6_s3.poni')
     # ai = pyFAI.load('coin_cell/S7_lab6.poni')
     # ai = pyFAI.load('images/lab6_10-15-2019a.poni')

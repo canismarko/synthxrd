@@ -18,8 +18,6 @@ import pandas as pd
 from tqdm import tqdm_notebook as tqdm
 import skimage
 from skimage import morphology
-import pyFAI
-from pyFAI.utils import bayes
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -37,7 +35,7 @@ log = logging.getLogger(__name__)
 
 LAMBDA = 0.43326450378946606 # X-ray wavelength in angstroms
 DEFAULT_MASK = 'masks/lab6_1_S002_00000.mask'
-DEFAULT_HDF_FILENAME = 'in_situ_calcination_data.h5'
+DEFAULT_HDF_FILENAME = 'in_situ_xrd_data.h5'
 
 
 domain_labels = {
@@ -48,6 +46,7 @@ domain_labels = {
 
 
 def fit_background(x, y, npt=15, k=5):
+    from pyFAI.utils import bayes
     bg_fitter = bayes.BayesianBackground()
     bg = bg_fitter(x, y, npt=npt, k=5)
     return bg

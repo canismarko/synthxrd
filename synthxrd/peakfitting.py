@@ -12,7 +12,7 @@ from . import exceptions
 # These q-ranges are specific to layered NMC-type cathodes
 peak_qranges = {
     '003': (1.0, 1.6),
-    '104': (2.9, 3.2),
+    '104': (2.9, 3.25),
     'LaB6-210': (3.325, 3.425),
 }
 
@@ -41,7 +41,7 @@ def get_full_qrange(peaks):
     return (min(mins), max(maxs))
 
 
-def fit_peaks(qs: ArrayLike, tths: ArrayLike, Is: ArrayLike, dataframe_index, peaks=('003',), method="gaussian") -> pd.DataFrame:
+def fit_peaks(qs: ArrayLike, Is: ArrayLike, dataframe_index, tths: ArrayLike=None, peaks=('003',), method="gaussian", desc="Fitting", centers=None) -> pd.DataFrame:
     """Fit a specific reflection to all the patterns in *qs*, *Is*.
     
     Peaks can also be overlapping adjacent peaks, but this will not
@@ -62,36 +62,45 @@ def fit_peaks(qs: ArrayLike, tths: ArrayLike, Is: ArrayLike, dataframe_index, pe
       Ranges for the peaks being fit. Can be defined by name in
       ``peak_qranges``, or else a sequence of (qmin, qmax) tuples for
       each peak.
+    desc
+      Description of the calculation that gets passed to the progress
+      bar. Only used if more than one pattern is passed
+      (i.e. qs.shape[0] > 1)
+    centers
+      Initial guesses for the centers of the peaks (in Q).
     
     Returns
     =======
     df : pd.DataFrame
       The fitted parameters and peak objects arranged in a pandas
       DataFrame.
-    
+
     """
-    if len(peaks) > 1:
-        raise NotImplementedError("Overlapping peaks not yet implemented.")
+    # if len(peaks) > 1:
+    #     raise NotImplementedError("Overlapping peaks not yet implemented.")
+    if tths is None:
+        tths = [None] * len(qs)
     qmin, qmax = get_full_qrange(peaks)
     # Go through and do the fitting
-    peaks = pd.DataFrame()
+    peaks_df = pd.DataFrame()
     qs = np.asarray(qs)
     data_bundle = zip(qs, tths, Is, dataframe_index)
     if qs.shape[0] > 1:
         # Wrap in a progress bar
-        data_bundle = tqdm(data_bundle, desc="Fitting", total=qs.shape[0])
+        data_bundle = tqdm(data_bundle, desc=desc, total=qs.shape[0])
     for q, tth, I, idx in data_bundle:
         q = np.asarray(q)
         I = np.asarray(I)
         is_peak = np.logical_and(np.greater_equal(q, qmin), np.less_equal(q, qmax))
-        peak_group = scimap.peakfitting.Peak(method=method)
+        peak_group = scimap.peakfitting.Peak(method=method, num_peaks=len(peaks), centers=centers)
         peak_group.fit(q[is_peak], I[is_peak])
-        # Append the fitted row to the pandas dataframe
+        # Append the fitted row to the pandas DataFrame
         predicted = peak_group.predict(q)
         area = peak_group.area()
         payload = {
             'center_q': peak_group.center(),
-            'fwhm': peak_group.fwhm(),
+            'fwhm_mean': peak_group.fwhm_mean(),
+            'fwhm_overall': peak_group.fwhm_overall(),
             'area': area,
             'breadth': area / np.max(predicted),
             'peak': peak_group,
@@ -112,7 +121,7 @@ def fit_peaks(qs: ArrayLike, tths: ArrayLike, Is: ArrayLike, dataframe_index, pe
             })
         # Add to the running dataframe
         pd.DataFrame(payload, index=[idx])
-        peaks = peaks.append(other=pd.DataFrame(payload, index=[idx]))
+        peaks_df = peaks_df.append(other=pd.DataFrame(payload, index=[idx]))
     # Add some additional columns to the dataframe
-    peaks['center_d'] = 2 * np.pi / peaks.center_q
-    return peaks
+    peaks_df['center_d'] = 2 * np.pi / peaks_df.center_q
+    return peaks_df

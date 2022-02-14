@@ -58,11 +58,8 @@ def plot_insitu_heatmap(qs, Is, metadata, xrd_ax, temp_ax=None,
     
     Returns
     =======
-    fig
-      The figure receiving the plots.
-    ax
-      A list of axes that were drawn on, in order (temperature, XRD,
-      cif0, cif1, ...)
+    artists
+      A lit of artists created.
     
     """
     # Prepare data
@@ -126,7 +123,7 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
                                   highlighted_scans=(),
                                   plot_sqrt=False, plot_log=False,
                                   domain='q', vmin=None, vmax=None,
-                                  cmap='viridis'):
+                                  cmap='viridis', fig=None):
     """Plot related data for in-situ heating experiments.
     
     Parameters
@@ -150,6 +147,8 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
     plot_sqrt
       If true, the image intensity will show the square-root of the
       diffraction signal.
+    fig
+      A matplotlib Figure instance to receive the new axes.
     
     Returns
     =======
@@ -172,9 +171,10 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
     if not qs_are_linear:
         warnings.warn('Scattering lengths are not evenly spaced.')
     # Prepare the figure and subplot axes
-    fig = plt.figure(figsize=figsize, constrained_layout=True)
-    fig.set_constrained_layout_pads(w_pad=0., h_pad=0.,
-                                    hspace=0., wspace=0.)
+    if fig is None:
+        fig = plt.figure(figsize=figsize, constrained_layout=True)
+    # fig.set_constrained_layout_pads(w_pad=0., h_pad=0.,
+    #                                 hspace=0., wspace=0.)
     n_ciffs = len(ciffiles)
     if n_ciffs > 0:
         height_ratios = (9,) + (1,) * n_ciffs
@@ -198,7 +198,7 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
     else:
         scaling_f = np.asarray
     xrdimg = xrdax.imshow(scaling_f(Is), origin='lower', aspect='auto', extent=extent, vmin=vmin, vmax=vmax, cmap=cmap)
-    plt.colorbar(mappable=xrdimg, cax=cax, cmap=cmap)
+    plt.colorbar(mappable=xrdimg, cax=cax)
     # Annotate and format the axes
     xrdax.set_facecolor('black')
     xrdax.set_xlabel("|q| /$A^{-1}$")
@@ -252,7 +252,7 @@ def plot_insitu_heatmap_with_cifs(qs, Is, metadata, figsize=(8, 8),
 def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
                           ciffiles=[], wavelength=None,
                           plot_sqrt=False, plot_log=False, domain='q',
-                          cmap='viridis', scale=1, linewidth=0.7):
+                          cmap='viridis', scale=1, linewidth=0.7, fig=None):
     """Plot related data for in-situ heating experiments.
     
     Parameters
@@ -276,6 +276,8 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     scale
       Multiplier for scaling the XRD intensity, useful for making the
       plots easier to see
+    fig
+      Matplotlib Figure that will receive the new axes, etc.
     
     Returns
     =======
@@ -293,13 +295,14 @@ def plot_insitu_waterfall(qs, Is, metadata, figsize=(8, 8),
     qs_are_consistent = (np.unique(qs, axis=0).shape[0] == 1)
     if not qs_are_consistent:
         warnings.warn('Scattering lengths are not consistent between scans.')
-    qs_are_linear = stats.linregress(np.arange(qs.shape[1]), qs[0]).rvalue == 1.0
-    if not qs_are_linear:
-        warnings.warn('Scattering lengths are not evenly spaced.')
+    # qs_are_linear = stats.linregress(np.arange(qs.shape[1]), qs[0]).rvalue == 1.0
+    # if not qs_are_linear:
+    #     warnings.warn('Scattering lengths are not evenly spaced.')
     # Prepare the figure and subplot axes
-    fig = plt.figure(figsize=figsize, constrained_layout=True)
-    fig.set_constrained_layout_pads(w_pad=0., h_pad=0.,
-                                    hspace=0., wspace=0.)
+    if fig is None:
+        fig = plt.figure(figsize=figsize, constrained_layout=True)
+    # fig.set_constrained_layout_pads(w_pad=0., h_pad=0.,
+    #                                 hspace=0., wspace=0.)
     n_ciffs = len(ciffiles)
     if n_ciffs > 0:
         height_ratios = (9,) + (1,) * n_ciffs
